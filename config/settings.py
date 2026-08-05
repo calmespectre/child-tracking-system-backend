@@ -11,7 +11,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 DEBUG = False
 
 ALLOWED_HOSTS = [
-    "https://child-tracking-system-backend.onrender.com",
+    "child-tracking-system-backend.onrender.com",
 ]
 
 INSTALLED_APPS = [
@@ -110,6 +110,8 @@ CSRF_TRUSTED_ORIGINS = [
     'https://child-tracking-system-backend.onrender.com',
     'https://child-tracking-system-pi.vercel.app',
 ]
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.environ.get("EMAIL_HOST")
