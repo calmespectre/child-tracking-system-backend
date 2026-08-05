@@ -8,9 +8,11 @@ BASE_DIR_NAME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SECRET_KEY = os.environ.get("SECRET_KEY")
 
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "https://child-tracking-system-backend.onrender.com",
+]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -101,6 +103,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",
     "http://localhost:3000",
     "https://child-tracking-system-pi.vercel.app",
+    "https://child-tracking-system-backend.onrender.com",
 ]
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
