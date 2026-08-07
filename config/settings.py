@@ -102,6 +102,7 @@ SIMPLE_JWT = {
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "https://child-tracking-system-pi.vercel.app",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
