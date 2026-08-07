@@ -100,8 +100,9 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
 }
 
-CORS_ALLOW_ALL_ORIGINS = os.environ.get(
-    "CORS_ALLOW_ALL_ORIGINS", "False").lower() == "true"
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://child-tracking-system-backend.onrender.com',
