@@ -123,9 +123,8 @@ SECURE_PROXY_SSL_HEADER = (
     "https",
 )
 
-BREVO_API_KEY = os.environ.get(
-    "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")
-BREVO_SENDER_EMAIL = os.environ.get("gerrad.meitameisaruni@gmail.com")
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
+BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL")
 BREVO_SENDER_NAME = os.environ.get(
     "BREVO_SENDER_NAME",
     "MKCDP Child Tracking System",
