@@ -72,6 +72,7 @@ class RequestOTPView(APIView):
             message=f"Here’s your one-time login code: {code}. It expires in 10 minutes.",
             from_email=None,
             recipient_list=[email],
+            fail_silently=True,
         )
         return Response({"detail": "OTP sent to email."}, status=status.HTTP_200_OK)
 
