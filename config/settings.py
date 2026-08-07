@@ -11,9 +11,11 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 DEBUG = False
 
 ALLOWED_HOSTS = [
-    "child-tracking-system-backend.onrender.com",
-    "localhost",
-    "127.0.0.1",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:3000",
+    "https://child-tracking-system-pi.vercel.app",
+    "https://child-tracking-system-backend.onrender.com",
 ]
 
 INSTALLED_APPS = [
