@@ -84,8 +84,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "en-us"
+
 TIME_ZONE = "UTC"
+
 USE_I18N = True
+
 USE_TZ = True
 
 STATIC_URL = "static/"
@@ -98,14 +101,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
-
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
-
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-
     "PAGE_SIZE": 50,
 }
 
@@ -113,6 +112,8 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -120,8 +121,9 @@ CORS_ALLOWED_ORIGINS = [
     "https://child-tracking-system-pi.vercel.app",
 ]
 
+CORS_ALLOW_CREDENTIALS = False
+
 CSRF_TRUSTED_ORIGINS = [
-    "https://child-tracking-system-backend.onrender.com",
     "https://child-tracking-system-pi.vercel.app",
 ]
 
@@ -131,7 +133,9 @@ SECURE_PROXY_SSL_HEADER = (
 )
 
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
+
 BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL")
+
 BREVO_SENDER_NAME = os.environ.get(
     "BREVO_SENDER_NAME",
     "MKCDP Child Tracking System",
