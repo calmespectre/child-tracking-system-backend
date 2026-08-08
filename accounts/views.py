@@ -98,72 +98,64 @@ class RequestOTPView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        try:
-            serializer = RequestOTPSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
+        serializer = RequestOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-            email = serializer.validated_data["email"]
-            password = serializer.validated_data.get("password", "")
+        email = serializer.validated_data["email"]
+        password = serializer.validated_data.get("password", "")
 
-            if not password:
-                return Response(
-                    {"detail": "Password is required."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            user = authenticate(
-                request,
-                email=email,
-                password=password,
-            )
-
-            if not user:
-                return Response(
-                    {"detail": "Invalid email or password."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if not user.is_active:
-                return Response(
-                    {
-                        "detail": "Your account has been deactivated. Please contact the administrator."
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            print("LOGIN DEBUG: User authenticated:", user.email)
-
-            otp, code = OTP.create_for_user(user)
-
-            print("LOGIN DEBUG: OTP created successfully")
-
-            send_brevo_email(
-                to_emails=email,
-                subject="Your MkCDP Child Tracking System login code",
-                text_content=(
-                    f"Here is your one-time login code: {code}. "
-                    "It expires in 10 minutes."
-                ),
-                html_content=f"""
-                    <div style="font-family: Arial, sans-serif;">
-                        <h2>MKCDP Child Tracking System</h2>
-                        <p>Your one-time login code is:</p>
-                        <h1>{code}</h1>
-                        <p>This code expires in 10 minutes.</p>
-                    </div>
-                """,
-            )
-
-            print("LOGIN DEBUG: Brevo email sent successfully")
-
+        if not password:
             return Response(
-                {"detail": "OTP sent to email."},
-                status=status.HTTP_200_OK,
+                {"detail": "Password is required."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        except Exception as e:
-            print("LOGIN ERROR:", type(e).__name__, str(e))
-            raise
+        user = authenticate(
+            request,
+            email=email,
+            password=password,
+        )
+
+        if not user:
+            return Response(
+                {"detail": "Invalid email or password."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user.is_active:
+            return Response(
+                {
+                    "detail": "Your account has been deactivated. Please contact the administrator."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        otp, code = OTP.create_for_user(user)
+
+        send_brevo_email(
+            to_emails=email,
+            subject="Your MkCDP Child Tracking System login code",
+            text_content=(
+                f"Here is your one-time login code: {code}. "
+                "It expires in 10 minutes."
+            ),
+            html_content=f"""
+                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
+                    <h2 style="margin-bottom: 10px;">MKCDP Child Tracking System</h2>
+                    <p>Your one-time login code is:</p>
+                    <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; padding: 20px; margin: 20px 0; background: #f5f5f5; border-radius: 10px;">
+                        {code}
+                    </div>
+                    <p>This code expires in 10 minutes.</p>
+                    <p>If you did not request this code, you can safely ignore this email.</p>
+                </div>
+            """,
+        )
+
+        return Response(
+            {"detail": "OTP sent to email."},
+            status=status.HTTP_200_OK,
+        )
 
 
 class VerifyOTPView(APIView):
