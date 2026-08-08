@@ -2,14 +2,18 @@ import os
 import secrets
 import string
 import requests
+
 from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.hashers import check_password
+from django.utils import timezone
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
+
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.utils import timezone
+
 from .models import OTP, UserSession
 from .serializers import (
     RequestOTPSerializer,
@@ -20,6 +24,7 @@ from .serializers import (
 )
 from .permissions import IsAdmin
 
+
 User = get_user_model()
 
 
@@ -28,7 +33,7 @@ def send_brevo_email(to_emails, subject, text_content, html_content=None):
     sender_email = os.environ.get("BREVO_SENDER_EMAIL")
     sender_name = os.environ.get(
         "BREVO_SENDER_NAME",
-        "MKCDP Child Tracking System"
+        "MKCDP Child Tracking System",
     )
 
     if not api_key:
@@ -68,13 +73,18 @@ def send_brevo_email(to_emails, subject, text_content, html_content=None):
     )
 
     response.raise_for_status()
-    return response.json()
+
+    try:
+        return response.json()
+    except ValueError:
+        return {"status": "sent"}
 
 
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
     refresh["role"] = user.role
     refresh["name"] = user.get_full_name() or user.username
+
     return {
         "refresh": str(refresh),
         "access": str(refresh.access_token),
@@ -83,11 +93,12 @@ def get_tokens_for_user(user):
 
 def get_client_ip(request):
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+
     if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0].strip()
-        return ip
+        return x_forwarded_for.split(",")[0].strip()
 
     x_real_ip = request.META.get("HTTP_X_REAL_IP")
+
     if x_real_ip:
         return x_real_ip.strip()
 
@@ -132,28 +143,45 @@ class RequestOTPView(APIView):
 
         otp, code = OTP.create_for_user(user)
 
-        send_brevo_email(
-            to_emails=email,
-            subject="Your MkCDP Child Tracking System login code",
-            text_content=(
-                f"Here is your one-time login code: {code}. "
-                "It expires in 10 minutes."
-            ),
-            html_content=f"""
-                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
-                    <h2 style="margin-bottom: 10px;">MKCDP Child Tracking System</h2>
-                    <p>Your one-time login code is:</p>
-                    <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; padding: 20px; margin: 20px 0; background: #f5f5f5; border-radius: 10px;">
-                        {code}
+        try:
+            send_brevo_email(
+                to_emails=email,
+                subject="Your MKCDP Child Tracking System login code",
+                text_content=(
+                    f"Here is your one-time login code: {code}. "
+                    "It expires in 10 minutes."
+                ),
+                html_content=f"""
+                    <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
+                        <h2 style="margin-bottom: 10px;">MKCDP Child Tracking System</h2>
+                        <p>Your one-time login code is:</p>
+                        <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; padding: 20px; margin: 20px 0; background: #f5f5f5; border-radius: 10px;">
+                            {code}
+                        </div>
+                        <p>This code expires in 10 minutes.</p>
+                        <p>If you did not request this code, you can safely ignore this email.</p>
                     </div>
-                    <p>This code expires in 10 minutes.</p>
-                    <p>If you did not request this code, you can safely ignore this email.</p>
-                </div>
-            """,
-        )
+                """,
+            )
+        except requests.RequestException:
+            return Response(
+                {
+                    "detail": "Unable to send the verification code right now. Please try again."
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:
+            return Response(
+                {
+                    "detail": "Unable to send the verification code right now. Please try again."
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
-            {"detail": "OTP sent to email."},
+            {
+                "detail": "OTP sent to email.",
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -191,14 +219,18 @@ class VerifyOTPView(APIView):
             .first()
         )
 
-        if not otp or not otp.is_valid() or not check_password(code, otp.code_hash):
+        if (
+            not otp
+            or not otp.is_valid()
+            or not check_password(code, otp.code_hash)
+        ):
             return Response(
                 {"detail": "Invalid or expired code."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         otp.is_used = True
-        otp.save()
+        otp.save(update_fields=["is_used"])
 
         ip = get_client_ip(request)
         ua = request.META.get("HTTP_USER_AGENT", "")
@@ -222,7 +254,7 @@ class VerifyOTPView(APIView):
         try:
             send_brevo_email(
                 to_emails=user.email,
-                subject="MkCDP Login Notification",
+                subject="MKCDP Login Notification",
                 text_content=(
                     f"Dear {user.get_full_name() or user.username},\n\n"
                     "A login to your MKCDP Child-Tracking-System account was detected.\n\n"
@@ -259,9 +291,9 @@ class VerifyOTPView(APIView):
             try:
                 send_brevo_email(
                     to_emails=admin_emails,
-                    subject="MkCDP - New User Login",
+                    subject="MKCDP - New User Login",
                     text_content=(
-                        "A user has logged into the MKCDP system Child-Tracking-System.\n\n"
+                        "A user has logged into the MKCDP Child-Tracking-System.\n\n"
                         f"User: {user.email}\n"
                         f"Role: {user.role}\n"
                         f"Time: {login_time}\n"
@@ -324,6 +356,7 @@ class CreateUserView(APIView):
     def post(self, request):
         serializer = CreateUserSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
         user = serializer.save()
 
         return Response(
@@ -401,7 +434,7 @@ class UpdateUserStatusView(APIView):
             )
 
         user_obj.is_active = bool(is_active)
-        user_obj.save()
+        user_obj.save(update_fields=["is_active"])
 
         serializer = UserSerializer(user_obj)
 
@@ -466,13 +499,14 @@ class ResetUserPasswordView(APIView):
             )
 
         alphabet = string.ascii_letters + string.digits
+
         new_password = "".join(
             secrets.choice(alphabet)
             for _ in range(12)
         )
 
         user_obj.set_password(new_password)
-        user_obj.save()
+        user_obj.save(update_fields=["password"])
 
         return Response(
             {
