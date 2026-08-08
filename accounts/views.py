@@ -132,28 +132,49 @@ class RequestOTPView(APIView):
 
         otp, code = OTP.create_for_user(user)
 
-        send_brevo_email(
-            to_emails=email,
-            subject="Your MkCDP Child Tracking System login code",
-            text_content=(
-                f"Here is your one-time login code: {code}. "
-                "It expires in 10 minutes."
-            ),
-            html_content=f"""
-                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
-                    <h2 style="margin-bottom: 10px;">MKCDP Child Tracking System</h2>
-                    <p>Your one-time login code is:</p>
-                    <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; padding: 20px; margin: 20px 0; background: #f5f5f5; border-radius: 10px;">
-                        {code}
+        try:
+            result = send_brevo_email(
+                to_emails=email,
+                subject="Your MKCDP Child Tracking System login code",
+                text_content=(
+                    f"Here is your one-time login code: {code}. "
+                    "It expires in 10 minutes."
+                ),
+                html_content=f"""
+                    <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
+                        <h2>MKCDP Child Tracking System</h2>
+                        <p>Your one-time login code is:</p>
+
+                        <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; padding: 20px; margin: 20px 0; background: #f5f5f5; border-radius: 10px;">
+                            {code}
+                        </div>
+
+                        <p>This code expires in 10 minutes.</p>
+
+                        <p>
+                            If you did not request this code,
+                            you can safely ignore this email.
+                        </p>
                     </div>
-                    <p>This code expires in 10 minutes.</p>
-                    <p>If you did not request this code, you can safely ignore this email.</p>
-                </div>
-            """,
-        )
+                """,
+            )
+
+            print("BREVO OTP RESPONSE:", result)
+
+        except Exception as exc:
+            print("BREVO OTP ERROR:", repr(exc))
+
+            return Response(
+                {
+                    "detail": "The verification email could not be sent. Please try again."
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
-            {"detail": "OTP sent to email."},
+            {
+                "detail": "OTP sent to email."
+            },
             status=status.HTTP_200_OK,
         )
 
