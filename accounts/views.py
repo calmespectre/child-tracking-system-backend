@@ -2,14 +2,18 @@ import os
 import secrets
 import string
 import requests
+
 from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.hashers import check_password
+from django.utils import timezone
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
+
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.utils import timezone
+
 from .models import OTP, UserSession
 from .serializers import (
     RequestOTPSerializer,
@@ -28,7 +32,7 @@ def send_brevo_email(to_emails, subject, text_content, html_content=None):
     sender_email = os.environ.get("BREVO_SENDER_EMAIL")
     sender_name = os.environ.get(
         "BREVO_SENDER_NAME",
-        "MKCDP Child Tracking System"
+        "MKCDP Child Tracking System",
     )
 
     if not api_key:
@@ -68,30 +72,34 @@ def send_brevo_email(to_emails, subject, text_content, html_content=None):
     )
 
     response.raise_for_status()
+
     return response.json()
-
-
-def get_tokens_for_user(user):
-    refresh = RefreshToken.for_user(user)
-    refresh["role"] = user.role
-    refresh["name"] = user.get_full_name() or user.username
-    return {
-        "refresh": str(refresh),
-        "access": str(refresh.access_token),
-    }
 
 
 def get_client_ip(request):
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+
     if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0].strip()
-        return ip
+        return x_forwarded_for.split(",")[0].strip()
 
     x_real_ip = request.META.get("HTTP_X_REAL_IP")
+
     if x_real_ip:
         return x_real_ip.strip()
 
-    return request.META.get("REMOTE_ADDR", "")
+    return request.META.get("REMOTE_ADDR", "").strip()
+
+
+def get_tokens_for_user(user):
+    refresh = RefreshToken.for_user(user)
+
+    refresh["role"] = user.role
+    refresh["name"] = user.get_full_name() or user.username
+
+    return {
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+    }
 
 
 class RequestOTPView(APIView):
@@ -487,6 +495,7 @@ class ResetUserPasswordView(APIView):
             )
 
         alphabet = string.ascii_letters + string.digits
+
         new_password = "".join(
             secrets.choice(alphabet)
             for _ in range(12)

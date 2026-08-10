@@ -4,7 +4,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_DIR_NAME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR_NAME = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
 
 SECRET_KEY = os.environ.get("SECRET_KEY")
 
@@ -102,7 +106,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "accounts.authentication.ActiveUserJWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",

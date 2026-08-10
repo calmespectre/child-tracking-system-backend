@@ -5,8 +5,10 @@ from datetime import timedelta
 
 
 class ActiveUserJWTAuthentication(JWTAuthentication):
+
     def authenticate(self, request):
         result = super().authenticate(request)
+
         if result is None:
             return None
 
@@ -17,21 +19,15 @@ class ActiveUserJWTAuthentication(JWTAuthentication):
                 "Your account has been deactivated. Please contact the administrator."
             )
 
-        client_ip = request.META.get("REMOTE_ADDR")
-
-        if user.last_activity and (timezone.now() - user.last_activity) > timedelta(minutes=1440):
+        if (
+            user.last_activity
+            and timezone.now() - user.last_activity > timedelta(minutes=1440)
+        ):
             raise AuthenticationFailed(
                 "Session expired due to inactivity. Please log in again."
             )
 
-        if user.last_ip and user.last_ip != client_ip:
-            raise AuthenticationFailed(
-                "IP address changed. Please log in again."
-            )
-
         user.last_activity = timezone.now()
-        if not user.last_ip:
-            user.last_ip = client_ip
-        user.save(update_fields=["last_activity", "last_ip"])
+        user.save(update_fields=["last_activity"])
 
-        return (user, token)
+        return user, token
