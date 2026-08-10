@@ -5,6 +5,7 @@ from datetime import timedelta
 
 
 class ActiveUserJWTAuthentication(JWTAuthentication):
+
     def authenticate(self, request):
         result = super().authenticate(request)
 
