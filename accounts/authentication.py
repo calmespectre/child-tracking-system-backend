@@ -5,7 +5,6 @@ from datetime import timedelta
 
 
 class ActiveUserJWTAuthentication(JWTAuthentication):
-
     def authenticate(self, request):
         result = super().authenticate(request)
 
@@ -19,10 +18,9 @@ class ActiveUserJWTAuthentication(JWTAuthentication):
                 "Your account has been deactivated. Please contact the administrator."
             )
 
-        if (
-            user.last_activity
-            and timezone.now() - user.last_activity > timedelta(minutes=1440)
-        ):
+        if user.last_activity and (
+            timezone.now() - user.last_activity
+        ) > timedelta(minutes=1440):
             raise AuthenticationFailed(
                 "Session expired due to inactivity. Please log in again."
             )
