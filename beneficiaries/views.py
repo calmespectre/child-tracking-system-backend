@@ -27,8 +27,10 @@ from .serializers import (
 
 from .permissions import IsAdmin
 
-from beneficiaries.models import (
+from .models import (
     Beneficiary,
+    Note,
+    Document,
     SupportLog,
 )
 
