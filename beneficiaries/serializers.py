@@ -33,9 +33,39 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 
 class SupportLogSerializer(serializers.ModelSerializer):
+    beneficiaryName = serializers.SerializerMethodField()
+    beneficiaryId = serializers.CharField(
+        source="beneficiary.child_number",
+        read_only=True,
+    )
+
     class Meta:
         model = SupportLog
-        fields = "__all__"
+        fields = [
+            "id",
+            "beneficiary",
+            "beneficiaryName",
+            "beneficiaryId",
+            "type",
+            "amount",
+            "date",
+            "notes",
+            "status",
+            "approved_by",
+            "status_updated_at",
+            "logged_at",
+            "logged_by",
+        ]
+        read_only_fields = [
+            "id",
+            "beneficiary",
+            "beneficiaryName",
+            "beneficiaryId",
+            "logged_at",
+        ]
+
+    def get_beneficiaryName(self, obj):
+        return obj.beneficiary.short_name or obj.beneficiary.last_name
 
 
 class BeneficiaryListSerializer(serializers.ModelSerializer):

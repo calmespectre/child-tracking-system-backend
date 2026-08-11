@@ -87,13 +87,9 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
         ]
 
         if ordering in allowed_ordering:
-            queryset = queryset.order_by(
-                ordering
-            )
+            queryset = queryset.order_by(ordering)
         else:
-            queryset = queryset.order_by(
-                "-child_number"
-            )
+            queryset = queryset.order_by("-child_number")
 
         return queryset
 
@@ -102,9 +98,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             self.get_queryset()
         )
 
-        page = self.paginate_queryset(
-            queryset
-        )
+        page = self.paginate_queryset(queryset)
 
         if page is not None:
             serializer = BeneficiaryListSerializer(
@@ -127,9 +121,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             },
         )
 
-        return Response(
-            serializer.data
-        )
+        return Response(serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
         beneficiary = self.get_object()
@@ -152,8 +144,275 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             },
         )
 
+        return Response(serializer.data)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="benefits",
+    )
+    def benefits(self, request):
+        user = request.user
+
+        queryset = SupportLog.objects.select_related(
+            "beneficiary"
+        )
+
+        if user.role == "employee":
+            queryset = queryset.filter(
+                beneficiary__created_by=user
+            )
+
+        search = request.query_params.get(
+            "search",
+            ""
+        ).strip()
+
+        benefit_type = request.query_params.get(
+            "type",
+            ""
+        ).strip()
+
+        ordering = request.query_params.get(
+            "ordering",
+            "-date"
+        ).strip()
+
+        if search:
+            queryset = queryset.filter(
+                Q(beneficiary__short_name__icontains=search)
+                | Q(beneficiary__last_name__icontains=search)
+                | Q(beneficiary__child_number__icontains=search)
+                | Q(type__icontains=search)
+                | Q(notes__icontains=search)
+            )
+
+        if benefit_type and benefit_type.lower() != "all":
+            queryset = queryset.filter(
+                type=benefit_type
+            )
+
+        allowed_ordering = [
+            "date",
+            "-date",
+            "logged_at",
+            "-logged_at",
+            "type",
+            "-type",
+        ]
+
+        if ordering in allowed_ordering:
+            queryset = queryset.order_by(ordering)
+        else:
+            queryset = queryset.order_by("-date", "-logged_at")
+
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = SupportLogSerializer(
+                page,
+                many=True,
+                context={
+                    "request": request
+                },
+            )
+
+            return self.get_paginated_response(
+                serializer.data
+            )
+
+        serializer = SupportLogSerializer(
+            queryset,
+            many=True,
+            context={
+                "request": request
+            },
+        )
+
+        return Response(serializer.data)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="benefits/import",
+    )
+    def import_benefits(self, request):
+        data = request.data
+
+        if not isinstance(data, list):
+            return Response(
+                {
+                    "error": "Expected a list of benefit records."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not data:
+            return Response(
+                {
+                    "created": 0,
+                    "skipped": 0,
+                    "missing": [],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+
+        beneficiaries = Beneficiary.objects.all()
+
+        if user.role == "employee":
+            beneficiaries = beneficiaries.filter(
+                created_by=user
+            )
+
+        beneficiaries = beneficiaries.only(
+            "id",
+            "last_name",
+            "short_name",
+            "child_number",
+        )
+
+        name_map = {}
+
+        for beneficiary in beneficiaries:
+            names = {
+                beneficiary.short_name,
+                beneficiary.last_name,
+            }
+
+            for name in names:
+                if name:
+                    key = name.strip().lower()
+
+                    if key not in name_map:
+                        name_map[key] = beneficiary
+
+        created = 0
+        skipped = 0
+        missing = []
+
+        support_logs = []
+
+        for row in data:
+            beneficiary_name = str(
+                row.get("beneficiaryName", "")
+            ).strip()
+
+            benefit_type = str(
+                row.get("type", "")
+            ).strip()
+
+            date = str(
+                row.get("date", "")
+            ).strip()
+
+            notes = str(
+                row.get("notes", "")
+            ).strip()
+
+            amount = row.get(
+                "amount",
+                0
+            )
+
+            status_value = str(
+                row.get("status", "Pending")
+            ).strip() or "Pending"
+
+            if not beneficiary_name or not benefit_type or not date:
+                skipped += 1
+                continue
+
+            beneficiary = name_map.get(
+                beneficiary_name.lower()
+            )
+
+            if not beneficiary:
+                skipped += 1
+
+                if beneficiary_name not in missing:
+                    missing.append(
+                        beneficiary_name
+                    )
+
+                continue
+
+            try:
+                amount = float(amount or 0)
+            except (TypeError, ValueError):
+                amount = 0
+
+            support_logs.append(
+                SupportLog(
+                    beneficiary=beneficiary,
+                    type=benefit_type,
+                    amount=amount,
+                    date=date,
+                    notes=notes,
+                    status=status_value,
+                    logged_by=(
+                        user.email
+                        if user.is_authenticated
+                        else ""
+                    ),
+                )
+            )
+
+            created += 1
+
+        with transaction.atomic():
+            SupportLog.objects.bulk_create(
+                support_logs,
+                batch_size=1000,
+            )
+
         return Response(
-            serializer.data
+            {
+                "created": created,
+                "skipped": skipped,
+                "missing": missing,
+                "message": (
+                    f"{created} benefit records imported successfully."
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="support",
+    )
+    def log_support(
+        self,
+        request,
+        pk=None,
+    ):
+        beneficiary = self.get_object()
+
+        data = request.data.copy()
+
+        serializer = SupportLogSerializer(
+            data=data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        serializer.save(
+            beneficiary=beneficiary,
+            logged_by=(
+                request.user.email
+                if request.user.is_authenticated
+                else ""
+            ),
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
         )
 
     @action(
@@ -270,9 +529,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             self.get_queryset()
         )
 
-        page = self.paginate_queryset(
-            queryset
-        )
+        page = self.paginate_queryset(queryset)
 
         if page is not None:
             serializer = BeneficiaryListSerializer(
@@ -295,9 +552,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             },
         )
 
-        return Response(
-            serializer.data
-        )
+        return Response(serializer.data)
 
     @action(
         detail=True,
@@ -340,9 +595,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
     ):
         beneficiary = self.get_object()
 
-        file = request.FILES.get(
-            "file"
-        )
+        file = request.FILES.get("file")
 
         if not file:
             return Response(
@@ -401,35 +654,6 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         return Response(
             status=status.HTTP_204_NO_CONTENT
-        )
-
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="support",
-    )
-    def log_support(
-        self,
-        request,
-        pk=None,
-    ):
-        beneficiary = self.get_object()
-
-        serializer = SupportLogSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        serializer.save(
-            beneficiary=beneficiary
-        )
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_201_CREATED,
         )
 
     @action(
