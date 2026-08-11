@@ -444,7 +444,7 @@ class UserSessionListView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        email = request.query_params.get("email")
+        email = request.query_params.get("email", "").strip()
 
         if not email:
             return Response(
@@ -453,20 +453,40 @@ class UserSessionListView(APIView):
             )
 
         try:
-            user_obj = User.objects.get(email=email)
+            user_obj = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
             return Response(
                 {"detail": "User not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        sessions = user_obj.sessions.all()
-        serializer = UserSessionSerializer(sessions, many=True)
+        try:
+            sessions = (
+                UserSession.objects
+                .filter(user=user_obj)
+                .select_related("user")
+                .order_by("-timestamp")
+            )
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
+            serializer = UserSessionSerializer(
+                sessions,
+                many=True,
+            )
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as exc:
+            print("USER SESSION ERROR:", repr(exc))
+
+            return Response(
+                {
+                    "detail": "Unable to load user sessions.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class CheckActiveStatusView(APIView):
