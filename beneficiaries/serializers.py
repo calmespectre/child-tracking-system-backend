@@ -34,6 +34,7 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 class SupportLogSerializer(serializers.ModelSerializer):
     beneficiaryName = serializers.SerializerMethodField()
+
     beneficiaryId = serializers.CharField(
         source="beneficiary.child_number",
         read_only=True,
@@ -56,6 +57,7 @@ class SupportLogSerializer(serializers.ModelSerializer):
             "logged_at",
             "logged_by",
         ]
+
         read_only_fields = [
             "id",
             "beneficiary",
@@ -65,95 +67,13 @@ class SupportLogSerializer(serializers.ModelSerializer):
         ]
 
     def get_beneficiaryName(self, obj):
-        return obj.beneficiary.short_name or obj.beneficiary.last_name
+        return (
+            obj.beneficiary.short_name
+            or obj.beneficiary.last_name
+        )
 
 
-class BeneficiaryListSerializer(serializers.ModelSerializer):
-    communityNumber = serializers.CharField(
-        source="community_number",
-        read_only=True,
-    )
-
-    lastName = serializers.CharField(
-        source="last_name",
-        read_only=True,
-    )
-
-    childNumber = serializers.CharField(
-        source="child_number",
-        read_only=True,
-    )
-
-    participantCaseNumber = serializers.CharField(
-        source="participant_case_number",
-        read_only=True,
-    )
-
-    shortName = serializers.CharField(
-        source="short_name",
-        read_only=True,
-    )
-
-    sponsorshipStatus = serializers.CharField(
-        source="sponsorship_status",
-        read_only=True,
-    )
-
-    enrollmentDate = serializers.DateField(
-        source="enrollment_date",
-        read_only=True,
-    )
-
-    narrativeDate = serializers.DateField(
-        source="narrative_date",
-        read_only=True,
-    )
-
-    photoDate = serializers.DateField(
-        source="photo_date",
-        read_only=True,
-    )
-
-    createdAt = serializers.DateTimeField(
-        source="created_at",
-        read_only=True,
-    )
-
-    updatedAt = serializers.DateTimeField(
-        source="updated_at",
-        read_only=True,
-    )
-
-    createdBy = serializers.PrimaryKeyRelatedField(
-        source="created_by",
-        read_only=True,
-    )
-
-    class Meta:
-        model = Beneficiary
-
-        fields = [
-            "id",
-            "communityNumber",
-            "lastName",
-            "childNumber",
-            "participantCaseNumber",
-            "gender",
-            "shortName",
-            "birthdate",
-            "sponsorshipStatus",
-            "enrollmentDate",
-            "narrativeDate",
-            "photoDate",
-            "age",
-            "village",
-            "createdAt",
-            "updatedAt",
-            "createdBy",
-        ]
-
-
-class BeneficiaryDetailSerializer(serializers.ModelSerializer):
+class BeneficiarySerializer(serializers.ModelSerializer):
     notes = NoteSerializer(
         many=True,
         read_only=True,
@@ -264,6 +184,16 @@ class BeneficiaryDetailSerializer(serializers.ModelSerializer):
             "supportLog",
         ]
 
+        read_only_fields = [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "createdBy",
+            "notes",
+            "documents",
+            "supportLog",
+        ]
+
     def create(self, validated_data):
         request = self.context.get("request")
 
@@ -281,3 +211,30 @@ class BeneficiaryDetailSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
+
+
+class BeneficiaryListSerializer(BeneficiarySerializer):
+    class Meta(BeneficiarySerializer.Meta):
+        fields = [
+            "id",
+            "communityNumber",
+            "lastName",
+            "childNumber",
+            "participantCaseNumber",
+            "gender",
+            "shortName",
+            "birthdate",
+            "sponsorshipStatus",
+            "enrollmentDate",
+            "narrativeDate",
+            "photoDate",
+            "age",
+            "village",
+            "createdAt",
+            "updatedAt",
+            "createdBy",
+        ]
+
+
+class BeneficiaryDetailSerializer(BeneficiarySerializer):
+    pass
