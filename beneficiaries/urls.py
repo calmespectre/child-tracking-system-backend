@@ -3,44 +3,22 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     BeneficiaryViewSet,
-    NoteViewSet,
-    DocumentViewSet,
-    SupportLogViewSet,
     EmployeeActivityView,
-    DashboardSummaryView,
+    DashboardView,
 )
 
 router = DefaultRouter()
-
 router.register(
-    "beneficiaries",
+    r"",
     BeneficiaryViewSet,
     basename="beneficiary",
-)
-
-router.register(
-    "notes",
-    NoteViewSet,
-    basename="note",
-)
-
-router.register(
-    "documents",
-    DocumentViewSet,
-    basename="document",
-)
-
-router.register(
-    "support-logs",
-    SupportLogViewSet,
-    basename="support-log",
 )
 
 urlpatterns = [
     path(
         "dashboard/",
-        DashboardSummaryView.as_view(),
-        name="dashboard",
+        DashboardView.as_view(),
+        name="beneficiary-dashboard",
     ),
 
     path(
