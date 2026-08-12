@@ -1,16 +1,22 @@
 from rest_framework import serializers
+
 from .models import User, UserSession
 
 
 class RequestOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(
-        required=False,
-        allow_blank=True,
+        required=True,
+        allow_blank=False,
+        write_only=True,
     )
 
     def validate_email(self, value):
-        if not User.objects.filter(email__iexact=value).exists():
+        value = value.strip().lower()
+
+        if not User.objects.filter(
+            email__iexact=value
+        ).exists():
             raise serializers.ValidationError(
                 "No account found with this email."
             )
@@ -23,20 +29,33 @@ class VerifyOTPSerializer(serializers.Serializer):
     code = serializers.CharField(
         max_length=6,
         min_length=6,
+        trim_whitespace=True,
     )
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_code(self, value):
+        value = value.strip()
+
+        if not value.isdigit():
+            raise serializers.ValidationError(
+                "OTP must contain exactly 6 digits."
+            )
+
+        return value
 
 
 class CreateUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
         write_only=True,
-        required=False,
-        allow_blank=True,
+        required=True,
+        allow_blank=False,
     )
 
     username = serializers.CharField(
         required=False,
         allow_blank=True,
-        default="",
     )
 
     class Meta:
@@ -49,7 +68,11 @@ class CreateUserSerializer(serializers.ModelSerializer):
         ]
 
     def validate_email(self, value):
-        if User.objects.filter(email__iexact=value).exists():
+        value = value.strip().lower()
+
+        if User.objects.filter(
+            email__iexact=value
+        ).exists():
             raise serializers.ValidationError(
                 "A user with this email already exists."
             )
@@ -57,27 +80,21 @@ class CreateUserSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        password = validated_data.pop(
-            "password",
-            None,
-        )
-
+        password = validated_data.pop("password")
         username = validated_data.pop(
             "username",
             "",
         )
 
         if not username:
-            username = validated_data.get("email")
+            username = validated_data["email"]
 
         validated_data["username"] = username
 
-        user = User.objects.create_user(
+        return User.objects.create_user(
             password=password,
             **validated_data,
         )
-
-        return user
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -108,6 +125,7 @@ class UserSessionSerializer(serializers.ModelSerializer):
             "user_agent",
             "timestamp",
         ]
+
         read_only_fields = [
             "id",
             "user",

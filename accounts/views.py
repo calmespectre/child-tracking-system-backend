@@ -68,24 +68,35 @@ def send_brevo_email(to_emails, subject, text_content, html_content=None):
             "content-type": "application/json",
         },
         json=payload,
-        timeout=10,
+        timeout=15,
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        try:
+            error_data = response.json()
+        except Exception:
+            error_data = response.text
 
-    return response.json()
+        raise ValueError(
+            f"Brevo error {response.status_code}: {error_data}"
+        )
+
+    try:
+        return response.json()
+    except Exception:
+        return {}
 
 
 def get_client_ip(request):
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
 
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
+    if forwarded:
+        return forwarded.split(",")[0].strip()
 
-    x_real_ip = request.META.get("HTTP_X_REAL_IP")
+    real_ip = request.META.get("HTTP_X_REAL_IP")
 
-    if x_real_ip:
-        return x_real_ip.strip()
+    if real_ip:
+        return real_ip.strip()
 
     return request.META.get("REMOTE_ADDR", "").strip()
 
@@ -95,10 +106,16 @@ def get_tokens_for_user(user):
 
     refresh["role"] = user.role
     refresh["name"] = user.get_full_name() or user.username
+    refresh["email"] = user.email
+
+    access = refresh.access_token
+    access["role"] = user.role
+    access["name"] = user.get_full_name() or user.username
+    access["email"] = user.email
 
     return {
         "refresh": str(refresh),
-        "access": str(refresh.access_token),
+        "access": str(access),
     }
 
 
@@ -107,9 +124,14 @@ class RequestOTPView(APIView):
 
     def post(self, request):
         serializer = RequestOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = serializer.validated_data["email"].strip().lower()
         password = serializer.validated_data.get("password", "")
 
         if not password:
@@ -119,7 +141,7 @@ class RequestOTPView(APIView):
             )
 
         user = authenticate(
-            request,
+            request=request,
             email=email,
             password=password,
         )
@@ -138,39 +160,45 @@ class RequestOTPView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        otp, code = OTP.create_for_user(user)
+        OTP.objects.filter(
+            user=user,
+            is_used=False,
+        ).update(is_used=True)
 
         try:
-            result = send_brevo_email(
-                to_emails=email,
+            otp, code = OTP.create_for_user(user)
+
+            send_brevo_email(
+                to_emails=user.email,
                 subject="Your MKCDP Child Tracking System login code",
                 text_content=(
-                    f"Here is your one-time login code: {code}. "
-                    "It expires in 10 minutes."
+                    f"Your one-time login code is: {code}\n\n"
+                    "This code expires in 10 minutes.\n\n"
+                    "If you did not request this code, you can safely ignore this email."
                 ),
                 html_content=f"""
-                    <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
+                    <div style="font-family:Arial,sans-serif;max-width:500px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
                         <h2>MKCDP Child Tracking System</h2>
                         <p>Your one-time login code is:</p>
-
-                        <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; padding: 20px; margin: 20px 0; background: #f5f5f5; border-radius: 10px;">
+                        <div style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:20px;margin:20px 0;background:#f5f5f5;border-radius:10px;">
                             {code}
                         </div>
-
                         <p>This code expires in 10 minutes.</p>
-
-                        <p>
-                            If you did not request this code,
-                            you can safely ignore this email.
-                        </p>
+                        <p>If you did not request this code, you can safely ignore this email.</p>
                     </div>
                 """,
             )
 
-            print("BREVO OTP RESPONSE:", result)
-
         except Exception as exc:
-            print("BREVO OTP ERROR:", repr(exc))
+            print("OTP EMAIL ERROR:", repr(exc))
+
+            try:
+                OTP.objects.filter(
+                    user=user,
+                    is_used=False,
+                ).delete()
+            except Exception:
+                pass
 
             return Response(
                 {
@@ -192,13 +220,18 @@ class VerifyOTPView(APIView):
 
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
-        code = serializer.validated_data["code"]
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = serializer.validated_data["email"].strip().lower()
+        code = serializer.validated_data["code"].strip()
 
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
             return Response(
                 {"detail": "Invalid email or code."},
@@ -214,44 +247,70 @@ class VerifyOTPView(APIView):
             )
 
         otp = (
-            user.otps
-            .filter(is_used=False)
+            OTP.objects
+            .filter(
+                user=user,
+                is_used=False,
+            )
             .order_by("-created_at")
             .first()
         )
 
-        if not otp or not otp.is_valid() or not check_password(code, otp.code_hash):
+        if not otp:
+            return Response(
+                {"detail": "Invalid or expired code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not otp.is_valid():
+            return Response(
+                {"detail": "Invalid or expired code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not check_password(code, otp.code_hash):
             return Response(
                 {"detail": "Invalid or expired code."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         otp.is_used = True
-        otp.save()
+        otp.save(update_fields=["is_used"])
 
         ip = get_client_ip(request)
-        ua = request.META.get("HTTP_USER_AGENT", "")
+        user_agent = request.META.get("HTTP_USER_AGENT", "")
 
         UserSession.objects.create(
             user=user,
             action="LOGIN",
-            ip_address=ip,
-            user_agent=ua,
+            ip_address=ip or None,
+            user_agent=user_agent,
         )
 
-        user.last_ip = ip
+        user.last_ip = ip or None
         user.last_activity = timezone.now()
-        user.save(update_fields=["last_ip", "last_activity"])
+        user.last_password_auth = timezone.now()
+
+        user.save(
+            update_fields=[
+                "last_ip",
+                "last_activity",
+                "last_password_auth",
+            ]
+        )
 
         tokens = get_tokens_for_user(user)
 
-        login_time = timezone.now().strftime("%d-%m-%Y %H:%M:%S")
-        device_info = ua or "Unknown device"
+        login_time = timezone.now().strftime(
+            "%d-%m-%Y %H:%M:%S"
+        )
+
+        device_info = user_agent or "Unknown device"
 
         try:
             send_brevo_email(
                 to_emails=user.email,
-                subject="MkCDP Login Notification",
+                subject="MKCDP Login Notification",
                 text_content=(
                     f"Dear {user.get_full_name() or user.username},\n\n"
                     "A login to your MKCDP Child-Tracking-System account was detected.\n\n"
@@ -262,7 +321,7 @@ class VerifyOTPView(APIView):
                     "If this was not you, please contact the administrator immediately."
                 ),
                 html_content=f"""
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
+                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
                         <h2>MKCDP Login Notification</h2>
                         <p>Dear {user.get_full_name() or user.username},</p>
                         <p>A login to your MKCDP Child-Tracking-System account was detected.</p>
@@ -274,23 +333,25 @@ class VerifyOTPView(APIView):
                     </div>
                 """,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            print("USER LOGIN EMAIL ERROR:", repr(exc))
 
         admin_emails = list(
             User.objects.filter(
-                role="admin",
+                role=User.Role.ADMIN,
                 is_active=True,
-            ).values_list("email", flat=True)
+            )
+            .exclude(id=user.id)
+            .values_list("email", flat=True)
         )
 
         if admin_emails:
             try:
                 send_brevo_email(
                     to_emails=admin_emails,
-                    subject="MkCDP - New User Login",
+                    subject="MKCDP - New User Login",
                     text_content=(
-                        "A user has logged into the MKCDP system Child-Tracking-System.\n\n"
+                        "A user has logged into the MKCDP Child-Tracking-System.\n\n"
                         f"User: {user.email}\n"
                         f"Role: {user.role}\n"
                         f"Time: {login_time}\n"
@@ -299,7 +360,7 @@ class VerifyOTPView(APIView):
                         "This is an automated notification."
                     ),
                     html_content=f"""
-                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 30px; border: 1px solid #e5e5e5; border-radius: 12px;">
+                        <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
                             <h2>MKCDP - New User Login</h2>
                             <p>A user has logged into the MKCDP Child-Tracking-System.</p>
                             <p><strong>User:</strong> {user.email}</p>
@@ -311,16 +372,18 @@ class VerifyOTPView(APIView):
                         </div>
                     """,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                print("ADMIN LOGIN EMAIL ERROR:", repr(exc))
 
         return Response(
             {
                 **tokens,
                 "user": {
+                    "id": user.id,
                     "name": user.get_full_name() or user.username,
                     "email": user.email,
                     "role": user.role,
+                    "is_active": user.is_active,
                 },
             },
             status=status.HTTP_200_OK,
@@ -332,14 +395,17 @@ class LogoutView(APIView):
 
     def post(self, request):
         ip = get_client_ip(request)
-        ua = request.META.get("HTTP_USER_AGENT", "")
+        user_agent = request.META.get("HTTP_USER_AGENT", "")
 
         UserSession.objects.create(
             user=request.user,
             action="LOGOUT",
-            ip_address=ip,
-            user_agent=ua,
+            ip_address=ip or None,
+            user_agent=user_agent,
         )
+
+        request.user.last_activity = timezone.now()
+        request.user.save(update_fields=["last_activity"])
 
         return Response(
             {"detail": "Logged out successfully."},
@@ -351,8 +417,16 @@ class CreateUserView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def post(self, request):
-        serializer = CreateUserSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = CreateUserSerializer(
+            data=request.data
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         user = serializer.save()
 
         return Response(
@@ -360,6 +434,7 @@ class CreateUserView(APIView):
                 "id": user.id,
                 "email": user.email,
                 "role": user.role,
+                "is_active": user.is_active,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -369,8 +444,12 @@ class ListUsersView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        users = User.objects.all()
-        serializer = UserSerializer(users, many=True)
+        users = User.objects.all().order_by("email")
+
+        serializer = UserSerializer(
+            users,
+            many=True,
+        )
 
         return Response(
             serializer.data,
@@ -429,13 +508,19 @@ class UpdateUserStatusView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user_obj.is_active = bool(is_active)
-        user_obj.save()
+        if isinstance(is_active, str):
+            is_active = is_active.lower() in [
+                "true",
+                "1",
+                "yes",
+                "on",
+            ]
 
-        serializer = UserSerializer(user_obj)
+        user_obj.is_active = bool(is_active)
+        user_obj.save(update_fields=["is_active"])
 
         return Response(
-            serializer.data,
+            UserSerializer(user_obj).data,
             status=status.HTTP_200_OK,
         )
 
@@ -444,49 +529,45 @@ class UserSessionListView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        email = request.query_params.get("email", "").strip()
+        email = request.query_params.get(
+            "email",
+            "",
+        ).strip()
 
         if not email:
             return Response(
-                {"detail": "Email query parameter is required."},
+                {
+                    "detail": "Email query parameter is required."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            user_obj = User.objects.get(email__iexact=email)
+            user_obj = User.objects.get(
+                email__iexact=email
+            )
         except User.DoesNotExist:
             return Response(
                 {"detail": "User not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        try:
-            sessions = (
-                UserSession.objects
-                .filter(user=user_obj)
-                .select_related("user")
-                .order_by("-timestamp")
-            )
+        sessions = (
+            UserSession.objects
+            .filter(user=user_obj)
+            .select_related("user")
+            .order_by("-timestamp")
+        )
 
-            serializer = UserSessionSerializer(
-                sessions,
-                many=True,
-            )
+        serializer = UserSessionSerializer(
+            sessions,
+            many=True,
+        )
 
-            return Response(
-                serializer.data,
-                status=status.HTTP_200_OK,
-            )
-
-        except Exception as exc:
-            print("USER SESSION ERROR:", repr(exc))
-
-            return Response(
-                {
-                    "detail": "Unable to load user sessions.",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class CheckActiveStatusView(APIView):
@@ -497,6 +578,7 @@ class CheckActiveStatusView(APIView):
             {
                 "is_active": request.user.is_active,
                 "email": request.user.email,
+                "role": request.user.role,
             },
             status=status.HTTP_200_OK,
         )
@@ -522,7 +604,7 @@ class ResetUserPasswordView(APIView):
         )
 
         user_obj.set_password(new_password)
-        user_obj.save()
+        user_obj.save(update_fields=["password"])
 
         return Response(
             {
