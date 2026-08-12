@@ -1,6 +1,5 @@
-import random
-
 from datetime import timedelta
+import random
 
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.db import models
@@ -12,28 +11,32 @@ class CustomUserManager(UserManager):
         self,
         email,
         password=None,
-        **extra_fields,
+        **extra_fields
     ):
         if not email:
             raise ValueError(
                 "The Email field is required"
             )
 
-        email = self.normalize_email(email)
+        email = self.normalize_email(
+            email
+        )
 
         extra_fields.setdefault(
             "username",
-            email,
+            email
         )
 
         user = self.model(
             email=email,
-            **extra_fields,
+            **extra_fields
         )
 
         user.set_password(password)
 
-        user.save(using=self._db)
+        user.save(
+            using=self._db
+        )
 
         return user
 
@@ -41,27 +44,27 @@ class CustomUserManager(UserManager):
         self,
         email,
         password=None,
-        **extra_fields,
+        **extra_fields
     ):
         extra_fields.setdefault(
             "is_staff",
-            True,
+            True
         )
 
         extra_fields.setdefault(
             "is_superuser",
-            True,
+            True
         )
 
         extra_fields.setdefault(
             "role",
-            "admin",
+            "admin"
         )
 
         return self.create_user(
             email,
             password,
-            **extra_fields,
+            **extra_fields
         )
 
 
@@ -82,27 +85,31 @@ class User(AbstractUser):
 
     last_password_auth = models.DateTimeField(
         null=True,
-        blank=True,
+        blank=True
     )
 
     last_activity = models.DateTimeField(
         null=True,
-        blank=True,
+        blank=True
     )
 
     last_ip = models.GenericIPAddressField(
         null=True,
-        blank=True,
+        blank=True
     )
 
     USERNAME_FIELD = "email"
 
-    REQUIRED_FIELDS = ["username"]
+    REQUIRED_FIELDS = [
+        "username"
+    ]
 
     objects = CustomUserManager()
 
     def __str__(self):
-        return f"{self.email} ({self.role})"
+        return (
+            f"{self.email} ({self.role})"
+        )
 
 
 class OTP(models.Model):
@@ -133,22 +140,27 @@ class OTP(models.Model):
     def is_valid(self):
         return (
             not self.is_used
-            and timezone.now() < self.expires_at
+            and timezone.now()
+            < self.expires_at
         )
 
     @classmethod
     def create_for_user(
         cls,
         user,
-        lifetime_minutes=10,
+        lifetime_minutes=10
     ):
-        from django.contrib.auth.hashers import make_password
+        from django.contrib.auth.hashers import (
+            make_password
+        )
 
         code = cls.generate_code()
 
         otp = cls.objects.create(
             user=user,
-            code_hash=make_password(code),
+            code_hash=make_password(
+                code
+            ),
             expires_at=(
                 timezone.now()
                 + timedelta(
@@ -192,7 +204,9 @@ class UserSession(models.Model):
     )
 
     class Meta:
-        ordering = ["-timestamp"]
+        ordering = [
+            "-timestamp"
+        ]
 
     def __str__(self):
         return (

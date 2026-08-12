@@ -1,16 +1,20 @@
 import os
+
 from datetime import timedelta
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
 
-SECRET_KEY = os.environ.get("SECRET_KEY")
-
-if not SECRET_KEY:
-    raise RuntimeError("SECRET_KEY environment variable is not configured.")
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY"
+)
 
 DEBUG = False
 
@@ -29,6 +33,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django_filters",
     "rest_framework",
+    "rest_framework_simplejwt",
     "corsheaders",
     "accounts",
     "beneficiaries",
@@ -67,7 +72,10 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.path.join(BASE_DIR, "db.sqlite3"),
+        "NAME": os.path.join(
+            BASE_DIR,
+            "db.sqlite3",
+        ),
     }
 }
 
@@ -96,9 +104,9 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
-STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+DEFAULT_AUTO_FIELD = (
+    "django.db.models.BigAutoField"
+)
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -115,16 +123,24 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "DEFAULT_PAGINATION_CLASS": (
+        "rest_framework.pagination.PageNumberPagination"
+    ),
     "PAGE_SIZE": 50,
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(
+        hours=5
+    ),
+    "REFRESH_TOKEN_LIFETIME": timedelta(
+        days=7
+    ),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_TYPES": (
+        "Bearer",
+    ),
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -143,9 +159,13 @@ SECURE_PROXY_SSL_HEADER = (
     "https",
 )
 
-BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
+BREVO_API_KEY = os.environ.get(
+    "BREVO_API_KEY"
+)
 
-BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL")
+BREVO_SENDER_EMAIL = os.environ.get(
+    "BREVO_SENDER_EMAIL"
+)
 
 BREVO_SENDER_NAME = os.environ.get(
     "BREVO_SENDER_NAME",

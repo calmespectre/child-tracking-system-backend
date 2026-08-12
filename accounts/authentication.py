@@ -1,13 +1,21 @@
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.exceptions import AuthenticationFailed
-from django.utils import timezone
 from datetime import timedelta
 
+from django.utils import timezone
 
-class ActiveUserJWTAuthentication(JWTAuthentication):
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
+
+SESSION_TIMEOUT = timedelta(hours=5)
+
+
+class ActiveUserJWTAuthentication(
+    JWTAuthentication
+):
     def authenticate(self, request):
-        result = super().authenticate(request)
+        result = super().authenticate(
+            request
+        )
 
         if result is None:
             return None
@@ -19,14 +27,24 @@ class ActiveUserJWTAuthentication(JWTAuthentication):
                 "Your account has been deactivated. Please contact the administrator."
             )
 
-        if user.last_activity and (
-            timezone.now() - user.last_activity
-        ) > timedelta(minutes=1440):
-            raise AuthenticationFailed(
-                "Session expired due to inactivity. Please log in again."
+        now = timezone.now()
+
+        if user.last_activity:
+            inactive_for = (
+                now - user.last_activity
             )
 
-        user.last_activity = timezone.now()
-        user.save(update_fields=["last_activity"])
+            if inactive_for > SESSION_TIMEOUT:
+                raise AuthenticationFailed(
+                    "Your session expired after 5 hours of inactivity. Please log in again."
+                )
+
+        user.last_activity = now
+
+        user.save(
+            update_fields=[
+                "last_activity"
+            ]
+        )
 
         return user, token

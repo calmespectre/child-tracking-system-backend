@@ -3,7 +3,9 @@ from rest_framework import serializers
 from .models import User, UserSession
 
 
-class RequestOTPSerializer(serializers.Serializer):
+class RequestOTPSerializer(
+    serializers.Serializer
+):
     email = serializers.EmailField()
 
     password = serializers.CharField(
@@ -22,7 +24,9 @@ class RequestOTPSerializer(serializers.Serializer):
         return value
 
 
-class VerifyOTPSerializer(serializers.Serializer):
+class VerifyOTPSerializer(
+    serializers.Serializer
+):
     email = serializers.EmailField()
 
     code = serializers.CharField(
@@ -31,7 +35,9 @@ class VerifyOTPSerializer(serializers.Serializer):
     )
 
 
-class CreateUserSerializer(serializers.ModelSerializer):
+class CreateUserSerializer(
+    serializers.ModelSerializer
+):
     password = serializers.CharField(
         write_only=True,
         required=False,
@@ -41,6 +47,7 @@ class CreateUserSerializer(serializers.ModelSerializer):
     username = serializers.CharField(
         required=False,
         allow_blank=True,
+        default="",
     )
 
     class Meta:
@@ -79,17 +86,19 @@ class CreateUserSerializer(serializers.ModelSerializer):
                 "email"
             )
 
-        validated_data["username"] = username
+        validated_data["username"] = (
+            username
+        )
 
-        user = User.objects.create_user(
+        return User.objects.create_user(
             password=password,
             **validated_data,
         )
 
-        return user
 
-
-class UserSerializer(serializers.ModelSerializer):
+class UserSerializer(
+    serializers.ModelSerializer
+):
     class Meta:
         model = User
 
@@ -101,7 +110,9 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
 
-class UserSessionSerializer(serializers.ModelSerializer):
+class UserSessionSerializer(
+    serializers.ModelSerializer
+):
     user_email = serializers.EmailField(
         source="user.email",
         read_only=True,
