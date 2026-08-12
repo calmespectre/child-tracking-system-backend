@@ -69,12 +69,18 @@ class SupportLogSerializer(serializers.ModelSerializer):
         if not obj.beneficiary:
             return ""
 
-        short_name = str(obj.beneficiary.short_name or "").strip()
-        last_name = str(obj.beneficiary.last_name or "").strip()
+        short_name = str(
+            obj.beneficiary.short_name or ""
+        ).strip()
+
+        last_name = str(
+            obj.beneficiary.last_name or ""
+        ).strip()
 
         if short_name and last_name:
             if short_name.lower() == last_name.lower():
                 return short_name
+
             return f"{short_name} {last_name}".strip()
 
         return short_name or last_name

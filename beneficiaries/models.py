@@ -113,7 +113,6 @@ class Beneficiary(models.Model):
 
     class Meta:
         ordering = ["-child_number"]
-
         indexes = [
             models.Index(fields=["last_name"]),
             models.Index(fields=["child_number"]),
@@ -122,7 +121,6 @@ class Beneficiary(models.Model):
             models.Index(fields=["community_number"]),
             models.Index(fields=["sponsorship_status"]),
             models.Index(fields=["created_by"]),
-            models.Index(fields=["-child_number"]),
         ]
 
     def __str__(self):
