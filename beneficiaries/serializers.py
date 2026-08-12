@@ -59,10 +59,10 @@ class SupportLogSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "beneficiary",
             "beneficiaryName",
             "beneficiaryId",
             "logged_at",
+            "logged_by",
         ]
 
     def get_beneficiaryName(self, obj):
@@ -81,7 +81,7 @@ class SupportLogSerializer(serializers.ModelSerializer):
             if short_name.lower() == last_name.lower():
                 return short_name
 
-            return f"{short_name} {last_name}".strip()
+            return f"{short_name} {last_name}"
 
         return short_name or last_name
 

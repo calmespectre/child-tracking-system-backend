@@ -11,7 +11,13 @@ from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Beneficiary, Note, Document, SupportLog
+from .models import (
+    Beneficiary,
+    Note,
+    Document,
+    SupportLog,
+)
+
 from .serializers import (
     BeneficiaryListSerializer,
     BeneficiaryDetailSerializer,
@@ -27,6 +33,14 @@ class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
     max_page_size = 100
+
+
+def is_admin_user(user):
+    return (
+        getattr(user, "is_staff", False)
+        or getattr(user, "is_superuser", False)
+        or str(getattr(user, "role", "")).lower() == "admin"
+    )
 
 
 class BeneficiaryViewSet(viewsets.ModelViewSet):
@@ -85,18 +99,17 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 "support_logs",
             )
 
-        is_admin = (
-            getattr(user, "is_staff", False)
-            or getattr(user, "is_superuser", False)
-            or getattr(user, "role", "").lower() == "admin"
-        )
-
-        if not is_admin:
+        if not is_admin_user(user):
             queryset = queryset.filter(
                 created_by=user
             )
 
         return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(
+            created_by=self.request.user
+        )
 
     @action(detail=True, methods=["post"])
     def notes(self, request, pk=None):
@@ -148,7 +161,9 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             type=file.content_type or "",
         )
 
-        serializer = DocumentSerializer(document)
+        serializer = DocumentSerializer(
+            document
+        )
 
         return Response(
             serializer.data,
@@ -158,7 +173,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["delete"],
-        url_path="documents/(?P<doc_id>[^/.]+)",
+        url_path=r"documents/(?P<doc_id>[^/.]+)",
     )
     def delete_document(
         self,
@@ -192,6 +207,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         serializer = SupportLogSerializer(
             data={
+                "beneficiary": beneficiary.id,
                 "type": request.data.get(
                     "type",
                     "Cash",
@@ -199,7 +215,9 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 "amount": request.data.get(
                     "amount"
                 ) or 0,
-                "date": request.data.get("date"),
+                "date": request.data.get(
+                    "date"
+                ),
                 "notes": request.data.get(
                     "notes",
                     "",
@@ -208,17 +226,17 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                     "status",
                     "Pending",
                 ),
-                "logged_by": (
-                    request.user.email
-                    if request.user.is_authenticated
-                    else ""
-                ),
             }
         )
 
         if serializer.is_valid():
             serializer.save(
-                beneficiary=beneficiary
+                beneficiary=beneficiary,
+                logged_by=(
+                    request.user.email
+                    if request.user.is_authenticated
+                    else ""
+                ),
             )
 
             return Response(
@@ -233,24 +251,19 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["delete"])
     def clear_all(self, request):
-        user = request.user
-
-        is_admin = (
-            getattr(user, "is_staff", False)
-            or getattr(user, "is_superuser", False)
-            or getattr(user, "role", "").lower() == "admin"
-        )
-
-        if not is_admin:
+        if not is_admin_user(request.user):
             return Response(
                 {"error": "Permission denied"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        Beneficiary.objects.all().delete()
+        deleted_count, _ = Beneficiary.objects.all().delete()
 
         return Response(
-            {"message": "All beneficiaries deleted"},
+            {
+                "message": "All beneficiaries deleted",
+                "deleted_count": deleted_count,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -265,7 +278,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
         if not isinstance(data, list):
             return Response(
                 {
-                    "error": "Expected a list of beneficiaries"
+                    "error": "Expected a list of beneficiaries."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -283,20 +296,13 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         user = request.user
 
-        child_numbers = []
+        child_numbers = {
+            str(item.get("childNumber", item.get("child_number", ""))).strip()
+            for item in data
+            if isinstance(item, dict)
+        }
 
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-
-            value = str(
-                item.get("childNumber")
-                or item.get("child_number")
-                or ""
-            ).strip()
-
-            if value:
-                child_numbers.append(value)
+        child_numbers.discard("")
 
         existing_numbers = set(
             Beneficiary.objects.filter(
@@ -307,38 +313,39 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             )
         )
 
-        created_count = 0
-        skipped_count = 0
-        failed_count = 0
+        created_objects = []
+        created_numbers = set()
         failed_rows = []
-        beneficiaries_to_create = []
-        seen_numbers = set()
+        skipped_count = 0
 
-        for idx, item in enumerate(
+        for index, item in enumerate(
             data,
             start=1,
         ):
             if not isinstance(item, dict):
-                failed_count += 1
                 failed_rows.append(
                     {
-                        "row": idx,
+                        "row": index,
                         "errors": "Invalid row format.",
                     }
                 )
                 continue
 
             child_number = str(
-                item.get("childNumber")
-                or item.get("child_number")
+                item.get(
+                    "childNumber",
+                    item.get(
+                        "child_number",
+                        "",
+                    ),
+                )
                 or ""
             ).strip()
 
             if not child_number:
-                failed_count += 1
                 failed_rows.append(
                     {
-                        "row": idx,
+                        "row": index,
                         "errors": {
                             "childNumber": [
                                 "This field is required."
@@ -348,147 +355,118 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 )
                 continue
 
-            if (
-                child_number in existing_numbers
-                or child_number in seen_numbers
-            ):
+            if child_number in existing_numbers:
                 skipped_count += 1
                 continue
 
-            payload = {
-                "community_number": str(
-                    item.get("communityNumber")
-                    or item.get("community_number")
-                    or ""
-                ).strip(),
-                "last_name": str(
-                    item.get("lastName")
-                    or item.get("last_name")
-                    or ""
-                ).strip(),
-                "child_number": child_number,
-                "participant_case_number": str(
-                    item.get("participantCaseNumber")
-                    or item.get(
-                        "participant_case_number"
-                    )
-                    or ""
-                ).strip(),
-                "gender": item.get(
-                    "gender"
-                ) or "Female",
-                "short_name": str(
-                    item.get("shortName")
-                    or item.get("short_name")
-                    or ""
-                ).strip(),
-                "birthdate": item.get(
-                    "birthdate"
-                ) or None,
-                "age": item.get("age") or None,
-                "village": str(
-                    item.get("village")
-                    or ""
-                ).strip(),
-                "sponsorship_status": (
-                    item.get("sponsorshipStatus")
-                    or item.get(
-                        "sponsorship_status"
-                    )
-                    or "Sponsored"
-                ),
-                "enrollment_date": (
-                    item.get("enrollmentDate")
-                    or item.get(
-                        "enrollment_date"
-                    )
-                    or None
-                ),
-                "narrative_date": (
-                    item.get("narrativeDate")
-                    or item.get(
-                        "narrative_date"
-                    )
-                    or None
-                ),
-                "photo_date": (
-                    item.get("photoDate")
-                    or item.get(
-                        "photo_date"
-                    )
-                    or None
-                ),
-                "created_by": user,
-            }
-
-            if not payload["last_name"]:
-                failed_count += 1
-                failed_rows.append(
-                    {
-                        "row": idx,
-                        "errors": {
-                            "lastName": [
-                                "This field is required."
-                            ]
-                        },
-                    }
-                )
+            if child_number in created_numbers:
+                skipped_count += 1
                 continue
 
-            try:
+            serializer = BeneficiaryDetailSerializer(
+                data=item,
+                context={
+                    "request": request,
+                },
+            )
+
+            if serializer.is_valid():
                 beneficiary = Beneficiary(
-                    **payload
+                    **serializer.validated_data,
+                    created_by=user,
                 )
 
-                beneficiary.full_clean()
-
-                beneficiaries_to_create.append(
+                created_objects.append(
                     beneficiary
                 )
 
-                seen_numbers.add(
+                created_numbers.add(
                     child_number
                 )
-
-            except Exception as e:
-                failed_count += 1
+            else:
                 failed_rows.append(
                     {
-                        "row": idx,
-                        "errors": str(e),
+                        "row": index,
+                        "errors": serializer.errors,
                     }
                 )
 
-        if beneficiaries_to_create:
+        created_count = 0
+
+        if created_objects:
             try:
                 with transaction.atomic():
                     Beneficiary.objects.bulk_create(
-                        beneficiaries_to_create,
+                        created_objects,
                         batch_size=500,
                     )
 
                 created_count = len(
-                    beneficiaries_to_create
+                    created_objects
                 )
 
-            except Exception as e:
+            except Exception as exc:
                 created_count = 0
-                failed_count += len(
-                    beneficiaries_to_create
-                )
 
-                failed_rows.append(
-                    {
-                        "row": "bulk",
-                        "errors": str(e),
-                    }
-                )
+                for index, item in enumerate(
+                    data,
+                    start=1,
+                ):
+                    if not isinstance(item, dict):
+                        continue
+
+                    child_number = str(
+                        item.get(
+                            "childNumber",
+                            item.get(
+                                "child_number",
+                                "",
+                            ),
+                        )
+                        or ""
+                    ).strip()
+
+                    if (
+                        not child_number
+                        or child_number
+                        in existing_numbers
+                    ):
+                        continue
+
+                    try:
+                        serializer = BeneficiaryDetailSerializer(
+                            data=item,
+                            context={
+                                "request": request,
+                            },
+                        )
+
+                        if serializer.is_valid():
+                            serializer.save(
+                                created_by=user
+                            )
+                            created_count += 1
+                        else:
+                            failed_rows.append(
+                                {
+                                    "row": index,
+                                    "errors": serializer.errors,
+                                }
+                            )
+
+                    except Exception as row_error:
+                        failed_rows.append(
+                            {
+                                "row": index,
+                                "errors": str(row_error),
+                            }
+                        )
 
         return Response(
             {
                 "created_count": created_count,
                 "skipped_count": skipped_count,
-                "failed_count": failed_count,
+                "failed_count": len(failed_rows),
                 "failed": failed_rows,
             },
             status=status.HTTP_200_OK,
@@ -536,16 +514,11 @@ class SupportLogViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         queryset = SupportLog.objects.select_related(
-            "beneficiary"
+            "beneficiary",
+            "beneficiary__created_by",
         )
 
-        is_admin = (
-            getattr(user, "is_staff", False)
-            or getattr(user, "is_superuser", False)
-            or getattr(user, "role", "").lower() == "admin"
-        )
-
-        if not is_admin:
+        if not is_admin_user(user):
             queryset = queryset.filter(
                 logged_by=user.email
             )
@@ -572,20 +545,32 @@ class SupportLogViewSet(viewsets.ModelViewSet):
         if not isinstance(data, list):
             return Response(
                 {
-                    "error": (
-                        "Expected a list of benefit records."
-                    )
+                    "error": "Expected a list of benefit records."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        beneficiaries = list(
-            Beneficiary.objects.all().only(
+        user = request.user
+
+        if is_admin_user(user):
+            beneficiaries = Beneficiary.objects.all().only(
                 "id",
                 "last_name",
                 "short_name",
                 "child_number",
             )
+        else:
+            beneficiaries = Beneficiary.objects.filter(
+                created_by=user
+            ).only(
+                "id",
+                "last_name",
+                "short_name",
+                "child_number",
+            )
+
+        beneficiaries = list(
+            beneficiaries
         )
 
         by_child_number = {}
@@ -601,11 +586,9 @@ class SupportLogViewSet(viewsets.ModelViewSet):
                     child_number
                 ] = beneficiary
 
-            names = self.get_beneficiary_names(
+            for name in self.get_beneficiary_names(
                 beneficiary
-            )
-
-            for name in names:
+            ):
                 normalized = self.normalize_name(
                     name
                 )
@@ -624,157 +607,167 @@ class SupportLogViewSet(viewsets.ModelViewSet):
         ambiguous = []
         failed = []
 
-        with transaction.atomic():
-            for index, row in enumerate(
-                data,
-                start=1,
-            ):
-                if not isinstance(row, dict):
-                    failed.append(
-                        {
-                            "row": index,
-                            "error": "Invalid row format.",
-                        }
+        logs_to_create = []
+
+        for index, row in enumerate(
+            data,
+            start=1,
+        ):
+            if not isinstance(row, dict):
+                failed.append(
+                    {
+                        "row": index,
+                        "error": "Invalid row format.",
+                    }
+                )
+                continue
+
+            name = str(
+                row.get(
+                    "beneficiaryName",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            child_number = str(
+                row.get(
+                    "childNumber",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            benefit_type = str(
+                row.get(
+                    "type",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            amount = row.get(
+                "amount",
+                0,
+            )
+
+            date = str(
+                row.get(
+                    "date",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            notes = str(
+                row.get(
+                    "notes",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            status_value = str(
+                row.get(
+                    "status",
+                    "Pending",
+                )
+                or "Pending"
+            ).strip()
+
+            if not name and not child_number:
+                missing.append(
+                    {
+                        "row": index,
+                        "name": "",
+                        "childNumber": "",
+                        "reason": (
+                            "No beneficiary name or "
+                            "child number provided."
+                        ),
+                    }
+                )
+                skipped += 1
+                continue
+
+            if not benefit_type:
+                failed.append(
+                    {
+                        "row": index,
+                        "error": "Benefit type is required.",
+                    }
+                )
+                continue
+
+            if not date:
+                failed.append(
+                    {
+                        "row": index,
+                        "error": "Benefit date is required.",
+                    }
+                )
+                continue
+
+            beneficiary = None
+
+            normalized_child_number = (
+                self.normalize_value(
+                    child_number
+                )
+            )
+
+            if normalized_child_number:
+                beneficiary = (
+                    by_child_number.get(
+                        normalized_child_number
                     )
-                    continue
-
-                name = str(
-                    row.get("beneficiaryName")
-                    or ""
-                ).strip()
-
-                child_number = str(
-                    row.get("childNumber")
-                    or ""
-                ).strip()
-
-                benefit_type = str(
-                    row.get("type")
-                    or ""
-                ).strip()
-
-                amount = row.get(
-                    "amount",
-                    0,
                 )
 
-                date = str(
-                    row.get("date")
-                    or ""
-                ).strip()
-
-                notes = str(
-                    row.get("notes")
-                    or ""
-                ).strip()
-
-                status_value = str(
-                    row.get("status")
-                    or "Pending"
-                ).strip()
-
-                if not name and not child_number:
-                    missing.append(
-                        {
-                            "row": index,
-                            "name": "",
-                            "childNumber": "",
-                            "reason": (
-                                "No beneficiary name or "
-                                "child number provided."
-                            ),
-                        }
-                    )
-                    skipped += 1
-                    continue
-
-                if not benefit_type:
-                    failed.append(
-                        {
-                            "row": index,
-                            "error": (
-                                "Benefit type is required."
-                            ),
-                        }
-                    )
-                    continue
-
-                if not date:
-                    failed.append(
-                        {
-                            "row": index,
-                            "error": (
-                                "Benefit date is required."
-                            ),
-                        }
-                    )
-                    continue
-
-                beneficiary = None
-
-                normalized_child_number = (
-                    self.normalize_value(
-                        child_number
+            if not beneficiary and name:
+                normalized_name = (
+                    self.normalize_name(
+                        name
                     )
                 )
 
-                if normalized_child_number:
-                    beneficiary = (
-                        by_child_number.get(
-                            normalized_child_number
-                        )
-                    )
+                candidates = by_name.get(
+                    normalized_name,
+                    [],
+                )
 
-                if not beneficiary and name:
-                    normalized_name = (
-                        self.normalize_name(
-                            name
-                        )
-                    )
+                if len(candidates) == 1:
+                    beneficiary = candidates[0]
 
-                    candidates = by_name.get(
-                        normalized_name,
-                        [],
-                    )
-
-                    if len(candidates) == 1:
-                        beneficiary = candidates[0]
-
-                    elif len(candidates) > 1:
-                        ambiguous.append(
-                            {
-                                "row": index,
-                                "name": name,
-                                "childNumber": (
-                                    child_number
-                                ),
-                                "reason": (
-                                    "Multiple beneficiaries "
-                                    "have this name."
-                                ),
-                            }
-                        )
-                        skipped += 1
-                        continue
-
-                if not beneficiary:
-                    missing.append(
+                elif len(candidates) > 1:
+                    ambiguous.append(
                         {
                             "row": index,
                             "name": name,
-                            "childNumber": (
-                                child_number
-                            ),
+                            "childNumber": child_number,
                             "reason": (
-                                "Beneficiary not found."
+                                "Multiple beneficiaries "
+                                "have this name."
                             ),
                         }
                     )
                     skipped += 1
                     continue
 
-                try:
-                    SupportLog.objects.create(
+            if not beneficiary:
+                missing.append(
+                    {
+                        "row": index,
+                        "name": name,
+                        "childNumber": child_number,
+                        "reason": "Beneficiary not found.",
+                    }
+                )
+                skipped += 1
+                continue
+
+            try:
+                logs_to_create.append(
+                    SupportLog(
                         beneficiary=beneficiary,
                         type=benefit_type,
                         amount=amount or 0,
@@ -790,16 +783,34 @@ class SupportLogViewSet(viewsets.ModelViewSet):
                             else ""
                         ),
                     )
+                )
 
-                    created += 1
+            except Exception as exc:
+                failed.append(
+                    {
+                        "row": index,
+                        "error": str(exc),
+                    }
+                )
 
-                except Exception as e:
-                    failed.append(
-                        {
-                            "row": index,
-                            "error": str(e),
-                        }
+        if logs_to_create:
+            try:
+                with transaction.atomic():
+                    SupportLog.objects.bulk_create(
+                        logs_to_create,
+                        batch_size=500,
                     )
+
+                created = len(
+                    logs_to_create
+                )
+
+            except Exception as exc:
+                failed.append(
+                    {
+                        "error": str(exc)
+                    }
+                )
 
         return Response(
             {
@@ -841,7 +852,9 @@ class SupportLogViewSet(viewsets.ModelViewSet):
         return value.strip()
 
     @staticmethod
-    def get_beneficiary_names(beneficiary):
+    def get_beneficiary_names(
+        beneficiary
+    ):
         names = set()
 
         short_name = str(
@@ -875,14 +888,9 @@ class DashboardView(APIView):
 
     def get(self, request):
         user = request.user
+        admin = is_admin_user(user)
 
-        is_admin = (
-            getattr(user, "is_staff", False)
-            or getattr(user, "is_superuser", False)
-            or getattr(user, "role", "").lower() == "admin"
-        )
-
-        if is_admin:
+        if admin:
             beneficiaries = Beneficiary.objects.all()
             support_logs = SupportLog.objects.all()
         else:
@@ -912,14 +920,10 @@ class DashboardView(APIView):
 
             percentage = (
                 round(
-                    (
-                        count
-                        / total_benefits
-                    )
-                    * 100,
+                    (count / total_benefits) * 100,
                     1,
                 )
-                if total_benefits > 0
+                if total_benefits
                 else 0
             )
 
@@ -936,53 +940,47 @@ class DashboardView(APIView):
 
         employee_stats = []
 
-        if is_admin:
+        if admin:
             users = User.objects.filter(
                 is_active=True
             ).order_by("email")
 
             for employee in users:
-                count = Beneficiary.objects.filter(
-                    created_by=employee
-                ).count()
+                employee_beneficiary_count = (
+                    Beneficiary.objects.filter(
+                        created_by=employee
+                    ).count()
+                )
 
                 employee_stats.append(
                     {
                         "email": employee.email,
-                        "beneficiary_count": count,
+                        "beneficiary_count": (
+                            employee_beneficiary_count
+                        ),
                     }
                 )
         else:
             employee_stats.append(
                 {
                     "email": user.email,
-                    "beneficiary_count": (
-                        beneficiary_count
-                    ),
+                    "beneficiary_count": beneficiary_count,
                 }
             )
 
         return Response(
             {
-                "beneficiary_count": (
-                    beneficiary_count
-                ),
+                "beneficiary_count": beneficiary_count,
                 "employee_count": (
                     User.objects.filter(
                         is_active=True
                     ).count()
-                    if is_admin
+                    if admin
                     else 1
                 ),
-                "total_benefits": (
-                    total_benefits
-                ),
-                "benefit_types": (
-                    benefit_types
-                ),
-                "employee_stats": (
-                    employee_stats
-                ),
+                "total_benefits": total_benefits,
+                "benefit_types": benefit_types,
+                "employee_stats": employee_stats,
             },
             status=status.HTTP_200_OK,
         )
@@ -993,18 +991,13 @@ class EmployeeActivityView(APIView):
 
     def get(self, request):
         user = request.user
-
         email = request.query_params.get(
             "email"
         )
 
-        is_admin = (
-            getattr(user, "is_staff", False)
-            or getattr(user, "is_superuser", False)
-            or getattr(user, "role", "").lower() == "admin"
-        )
+        admin = is_admin_user(user)
 
-        if is_admin:
+        if admin:
             if email:
                 employee = User.objects.filter(
                     email__iexact=email
@@ -1013,35 +1006,23 @@ class EmployeeActivityView(APIView):
                 if not employee:
                     return Response(
                         {
-                            "detail": (
-                                "Employee not found."
-                            )
+                            "detail": "Employee not found."
                         },
-                        status=(
-                            status.HTTP_404_NOT_FOUND
-                        ),
+                        status=status.HTTP_404_NOT_FOUND,
                     )
-
-                beneficiary_count = (
-                    Beneficiary.objects.filter(
-                        created_by=employee
-                    ).count()
-                )
-
-                benefit_count = (
-                    SupportLog.objects.filter(
-                        logged_by=employee.email
-                    ).count()
-                )
 
                 return Response(
                     {
                         "email": employee.email,
                         "beneficiary_count": (
-                            beneficiary_count
+                            Beneficiary.objects.filter(
+                                created_by=employee
+                            ).count()
                         ),
                         "benefit_count": (
-                            benefit_count
+                            SupportLog.objects.filter(
+                                logged_by=employee.email
+                            ).count()
                         ),
                     }
                 )
@@ -1071,26 +1052,18 @@ class EmployeeActivityView(APIView):
 
             return Response(results)
 
-        beneficiary_count = (
-            Beneficiary.objects.filter(
-                created_by=user
-            ).count()
-        )
-
-        benefit_count = (
-            SupportLog.objects.filter(
-                logged_by=user.email
-            ).count()
-        )
-
         return Response(
             {
                 "email": user.email,
                 "beneficiary_count": (
-                    beneficiary_count
+                    Beneficiary.objects.filter(
+                        created_by=user
+                    ).count()
                 ),
                 "benefit_count": (
-                    benefit_count
+                    SupportLog.objects.filter(
+                        logged_by=user.email
+                    ).count()
                 ),
             }
         )

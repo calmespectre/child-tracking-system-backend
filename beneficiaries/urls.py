@@ -11,7 +11,7 @@ from .views import (
 router = DefaultRouter()
 
 router.register(
-    r"",
+    r"beneficiaries",
     BeneficiaryViewSet,
     basename="beneficiary",
 )

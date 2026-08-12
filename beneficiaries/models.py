@@ -121,6 +121,7 @@ class Beneficiary(models.Model):
             models.Index(fields=["community_number"]),
             models.Index(fields=["sponsorship_status"]),
             models.Index(fields=["created_by"]),
+            models.Index(fields=["-child_number"]),
         ]
 
     def __str__(self):
@@ -241,6 +242,7 @@ class SupportLog(models.Model):
             models.Index(fields=["status"]),
             models.Index(fields=["date"]),
             models.Index(fields=["beneficiary", "status"]),
+            models.Index(fields=["logged_by"]),
         ]
 
     def __str__(self):
