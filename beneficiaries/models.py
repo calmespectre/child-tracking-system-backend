@@ -242,7 +242,6 @@ class SupportLog(models.Model):
             models.Index(fields=["status"]),
             models.Index(fields=["date"]),
             models.Index(fields=["beneficiary", "status"]),
-            models.Index(fields=["logged_by"]),
         ]
 
     def __str__(self):
