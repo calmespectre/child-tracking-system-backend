@@ -24,6 +24,7 @@ from .serializers import (
 )
 from .permissions import IsAdmin
 
+
 User = get_user_model()
 
 
@@ -68,35 +69,24 @@ def send_brevo_email(to_emails, subject, text_content, html_content=None):
             "content-type": "application/json",
         },
         json=payload,
-        timeout=15,
+        timeout=10,
     )
 
-    if not response.ok:
-        try:
-            error_data = response.json()
-        except Exception:
-            error_data = response.text
+    response.raise_for_status()
 
-        raise ValueError(
-            f"Brevo error {response.status_code}: {error_data}"
-        )
-
-    try:
-        return response.json()
-    except Exception:
-        return {}
+    return response.json()
 
 
 def get_client_ip(request):
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
 
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
 
-    real_ip = request.META.get("HTTP_X_REAL_IP")
+    x_real_ip = request.META.get("HTTP_X_REAL_IP")
 
-    if real_ip:
-        return real_ip.strip()
+    if x_real_ip:
+        return x_real_ip.strip()
 
     return request.META.get("REMOTE_ADDR", "").strip()
 
@@ -108,14 +98,9 @@ def get_tokens_for_user(user):
     refresh["name"] = user.get_full_name() or user.username
     refresh["email"] = user.email
 
-    access = refresh.access_token
-    access["role"] = user.role
-    access["name"] = user.get_full_name() or user.username
-    access["email"] = user.email
-
     return {
         "refresh": str(refresh),
-        "access": str(access),
+        "access": str(refresh.access_token),
     }
 
 
@@ -124,14 +109,9 @@ class RequestOTPView(APIView):
 
     def post(self, request):
         serializer = RequestOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        email = serializer.validated_data["email"].strip().lower()
+        email = serializer.validated_data["email"]
         password = serializer.validated_data.get("password", "")
 
         if not password:
@@ -141,7 +121,7 @@ class RequestOTPView(APIView):
             )
 
         user = authenticate(
-            request=request,
+            request,
             email=email,
             password=password,
         )
@@ -165,16 +145,15 @@ class RequestOTPView(APIView):
             is_used=False,
         ).update(is_used=True)
 
-        try:
-            otp, code = OTP.create_for_user(user)
+        otp, code = OTP.create_for_user(user)
 
-            send_brevo_email(
-                to_emails=user.email,
+        try:
+            result = send_brevo_email(
+                to_emails=email,
                 subject="Your MKCDP Child Tracking System login code",
                 text_content=(
-                    f"Your one-time login code is: {code}\n\n"
-                    "This code expires in 10 minutes.\n\n"
-                    "If you did not request this code, you can safely ignore this email."
+                    f"Here is your one-time login code: {code}. "
+                    "It expires in 10 minutes."
                 ),
                 html_content=f"""
                     <div style="font-family:Arial,sans-serif;max-width:500px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
@@ -189,16 +168,12 @@ class RequestOTPView(APIView):
                 """,
             )
 
-        except Exception as exc:
-            print("OTP EMAIL ERROR:", repr(exc))
+            print("BREVO OTP RESPONSE:", result)
 
-            try:
-                OTP.objects.filter(
-                    user=user,
-                    is_used=False,
-                ).delete()
-            except Exception:
-                pass
+        except Exception as exc:
+            print("BREVO OTP ERROR:", repr(exc))
+
+            otp.delete()
 
             return Response(
                 {
@@ -220,15 +195,10 @@ class VerifyOTPView(APIView):
 
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        email = serializer.validated_data["email"].strip().lower()
-        code = serializer.validated_data["code"].strip()
+        email = serializer.validated_data["email"]
+        code = serializer.validated_data["code"]
 
         try:
             user = User.objects.get(email__iexact=email)
@@ -247,11 +217,8 @@ class VerifyOTPView(APIView):
             )
 
         otp = (
-            OTP.objects
-            .filter(
-                user=user,
-                is_used=False,
-            )
+            user.otps
+            .filter(is_used=False)
             .order_by("-created_at")
             .first()
         )
@@ -278,16 +245,16 @@ class VerifyOTPView(APIView):
         otp.save(update_fields=["is_used"])
 
         ip = get_client_ip(request)
-        user_agent = request.META.get("HTTP_USER_AGENT", "")
+        ua = request.META.get("HTTP_USER_AGENT", "")
 
         UserSession.objects.create(
             user=user,
             action="LOGIN",
-            ip_address=ip or None,
-            user_agent=user_agent,
+            ip_address=ip,
+            user_agent=ua,
         )
 
-        user.last_ip = ip or None
+        user.last_ip = ip
         user.last_activity = timezone.now()
         user.last_password_auth = timezone.now()
 
@@ -305,7 +272,7 @@ class VerifyOTPView(APIView):
             "%d-%m-%Y %H:%M:%S"
         )
 
-        device_info = user_agent or "Unknown device"
+        device_info = ua or "Unknown device"
 
         try:
             send_brevo_email(
@@ -338,11 +305,12 @@ class VerifyOTPView(APIView):
 
         admin_emails = list(
             User.objects.filter(
-                role=User.Role.ADMIN,
+                role="admin",
                 is_active=True,
+            ).values_list(
+                "email",
+                flat=True,
             )
-            .exclude(id=user.id)
-            .values_list("email", flat=True)
         )
 
         if admin_emails:
@@ -379,11 +347,9 @@ class VerifyOTPView(APIView):
             {
                 **tokens,
                 "user": {
-                    "id": user.id,
                     "name": user.get_full_name() or user.username,
                     "email": user.email,
                     "role": user.role,
-                    "is_active": user.is_active,
                 },
             },
             status=status.HTTP_200_OK,
@@ -395,17 +361,20 @@ class LogoutView(APIView):
 
     def post(self, request):
         ip = get_client_ip(request)
-        user_agent = request.META.get("HTTP_USER_AGENT", "")
+        ua = request.META.get("HTTP_USER_AGENT", "")
 
         UserSession.objects.create(
             user=request.user,
             action="LOGOUT",
-            ip_address=ip or None,
-            user_agent=user_agent,
+            ip_address=ip,
+            user_agent=ua,
         )
 
         request.user.last_activity = timezone.now()
-        request.user.save(update_fields=["last_activity"])
+
+        request.user.save(
+            update_fields=["last_activity"]
+        )
 
         return Response(
             {"detail": "Logged out successfully."},
@@ -421,11 +390,9 @@ class CreateUserView(APIView):
             data=request.data
         )
 
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        serializer.is_valid(
+            raise_exception=True
+        )
 
         user = serializer.save()
 
@@ -434,7 +401,6 @@ class CreateUserView(APIView):
                 "id": user.id,
                 "email": user.email,
                 "role": user.role,
-                "is_active": user.is_active,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -444,7 +410,9 @@ class ListUsersView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        users = User.objects.all().order_by("email")
+        users = User.objects.all().order_by(
+            "email"
+        )
 
         serializer = UserSerializer(
             users,
@@ -471,14 +439,16 @@ class DeleteUserView(APIView):
 
         if user_obj == request.user:
             return Response(
-                {"detail": "You cannot delete your own account."},
+                {
+                    "detail": "You cannot delete your own account."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         user_obj.delete()
 
         return Response(
-            status=status.HTTP_204_NO_CONTENT,
+            status=status.HTTP_204_NO_CONTENT
         )
 
 
@@ -496,31 +466,35 @@ class UpdateUserStatusView(APIView):
 
         if user_obj == request.user:
             return Response(
-                {"detail": "You cannot change your own status."},
+                {
+                    "detail": "You cannot change your own status."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "is_active" not in request.data:
+            return Response(
+                {
+                    "detail": "is_active field is required."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         is_active = request.data.get("is_active")
 
-        if is_active is None:
-            return Response(
-                {"detail": "is_active field is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         if isinstance(is_active, str):
-            is_active = is_active.lower() in [
-                "true",
-                "1",
-                "yes",
-                "on",
-            ]
+            is_active = is_active.lower() == "true"
 
         user_obj.is_active = bool(is_active)
-        user_obj.save(update_fields=["is_active"])
+
+        user_obj.save(
+            update_fields=["is_active"]
+        )
+
+        serializer = UserSerializer(user_obj)
 
         return Response(
-            UserSerializer(user_obj).data,
+            serializer.data,
             status=status.HTTP_200_OK,
         )
 
@@ -578,7 +552,6 @@ class CheckActiveStatusView(APIView):
             {
                 "is_active": request.user.is_active,
                 "email": request.user.email,
-                "role": request.user.role,
             },
             status=status.HTTP_200_OK,
         )
@@ -604,7 +577,10 @@ class ResetUserPasswordView(APIView):
         )
 
         user_obj.set_password(new_password)
-        user_obj.save(update_fields=["password"])
+
+        user_obj.save(
+            update_fields=["password"]
+        )
 
         return Response(
             {

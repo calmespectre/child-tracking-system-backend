@@ -1,5 +1,6 @@
-from datetime import timedelta
 import random
+
+from datetime import timedelta
 
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.db import models
@@ -7,13 +8,23 @@ from django.utils import timezone
 
 
 class CustomUserManager(UserManager):
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(
+        self,
+        email,
+        password=None,
+        **extra_fields,
+    ):
         if not email:
-            raise ValueError("The Email field is required")
+            raise ValueError(
+                "The Email field is required"
+            )
 
         email = self.normalize_email(email)
 
-        extra_fields.setdefault("username", email)
+        extra_fields.setdefault(
+            "username",
+            email,
+        )
 
         user = self.model(
             email=email,
@@ -21,6 +32,7 @@ class CustomUserManager(UserManager):
         )
 
         user.set_password(password)
+
         user.save(using=self._db)
 
         return user
@@ -31,19 +43,20 @@ class CustomUserManager(UserManager):
         password=None,
         **extra_fields,
     ):
-        extra_fields.setdefault("is_staff", True)
-        extra_fields.setdefault("is_superuser", True)
-        extra_fields.setdefault("role", "admin")
+        extra_fields.setdefault(
+            "is_staff",
+            True,
+        )
 
-        if extra_fields.get("is_staff") is not True:
-            raise ValueError(
-                "Superuser must have is_staff=True."
-            )
+        extra_fields.setdefault(
+            "is_superuser",
+            True,
+        )
 
-        if extra_fields.get("is_superuser") is not True:
-            raise ValueError(
-                "Superuser must have is_superuser=True."
-            )
+        extra_fields.setdefault(
+            "role",
+            "admin",
+        )
 
         return self.create_user(
             email,
@@ -64,7 +77,7 @@ class User(AbstractUser):
     )
 
     email = models.EmailField(
-        unique=True,
+        unique=True
     )
 
     last_password_auth = models.DateTimeField(
@@ -100,29 +113,18 @@ class OTP(models.Model):
     )
 
     code_hash = models.CharField(
-        max_length=128,
+        max_length=128
     )
 
     created_at = models.DateTimeField(
-        auto_now_add=True,
+        auto_now_add=True
     )
 
     expires_at = models.DateTimeField()
 
     is_used = models.BooleanField(
-        default=False,
+        default=False
     )
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(
-                fields=["user", "is_used"]
-            ),
-            models.Index(
-                fields=["expires_at"]
-            ),
-        ]
 
     @staticmethod
     def generate_code():
@@ -186,7 +188,7 @@ class UserSession(models.Model):
     )
 
     timestamp = models.DateTimeField(
-        auto_now_add=True,
+        auto_now_add=True
     )
 
     class Meta:

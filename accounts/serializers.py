@@ -5,15 +5,13 @@ from .models import User, UserSession
 
 class RequestOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
+
     password = serializers.CharField(
-        required=True,
-        allow_blank=False,
-        write_only=True,
+        required=False,
+        allow_blank=True,
     )
 
     def validate_email(self, value):
-        value = value.strip().lower()
-
         if not User.objects.filter(
             email__iexact=value
         ).exists():
@@ -26,31 +24,18 @@ class RequestOTPSerializer(serializers.Serializer):
 
 class VerifyOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
+
     code = serializers.CharField(
         max_length=6,
         min_length=6,
-        trim_whitespace=True,
     )
-
-    def validate_email(self, value):
-        return value.strip().lower()
-
-    def validate_code(self, value):
-        value = value.strip()
-
-        if not value.isdigit():
-            raise serializers.ValidationError(
-                "OTP must contain exactly 6 digits."
-            )
-
-        return value
 
 
 class CreateUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
         write_only=True,
-        required=True,
-        allow_blank=False,
+        required=False,
+        allow_blank=True,
     )
 
     username = serializers.CharField(
@@ -60,6 +45,7 @@ class CreateUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
+
         fields = [
             "email",
             "role",
@@ -68,8 +54,6 @@ class CreateUserSerializer(serializers.ModelSerializer):
         ]
 
     def validate_email(self, value):
-        value = value.strip().lower()
-
         if User.objects.filter(
             email__iexact=value
         ).exists():
@@ -80,26 +64,35 @@ class CreateUserSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        password = validated_data.pop("password")
+        password = validated_data.pop(
+            "password",
+            None,
+        )
+
         username = validated_data.pop(
             "username",
             "",
         )
 
         if not username:
-            username = validated_data["email"]
+            username = validated_data.get(
+                "email"
+            )
 
         validated_data["username"] = username
 
-        return User.objects.create_user(
+        user = User.objects.create_user(
             password=password,
             **validated_data,
         )
+
+        return user
 
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
+
         fields = [
             "id",
             "email",
@@ -116,6 +109,7 @@ class UserSessionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserSession
+
         fields = [
             "id",
             "user",
