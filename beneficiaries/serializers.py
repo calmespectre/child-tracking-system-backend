@@ -42,7 +42,6 @@ class SupportLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SupportLog
-
         fields = [
             "id",
             "beneficiary",
@@ -58,7 +57,6 @@ class SupportLogSerializer(serializers.ModelSerializer):
             "logged_at",
             "logged_by",
         ]
-
         read_only_fields = [
             "id",
             "beneficiary",
@@ -71,11 +69,15 @@ class SupportLogSerializer(serializers.ModelSerializer):
         if not obj.beneficiary:
             return ""
 
-        return (
-            obj.beneficiary.short_name
-            or obj.beneficiary.last_name
-            or ""
-        )
+        short_name = str(obj.beneficiary.short_name or "").strip()
+        last_name = str(obj.beneficiary.last_name or "").strip()
+
+        if short_name and last_name:
+            if short_name.lower() == last_name.lower():
+                return short_name
+            return f"{short_name} {last_name}".strip()
+
+        return short_name or last_name
 
 
 class BeneficiaryListSerializer(serializers.ModelSerializer):
@@ -141,7 +143,6 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Beneficiary
-
         fields = [
             "id",
             "communityNumber",
@@ -250,7 +251,6 @@ class BeneficiaryDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Beneficiary
-
         fields = [
             "id",
             "communityNumber",
