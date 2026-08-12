@@ -235,14 +235,24 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         if not isinstance(data, list):
             return Response(
-                {"error": "Expected a list of beneficiaries"},
+                {
+                    "error": "Expected a list of beneficiaries"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        created_count = 0
-        skipped_count = 0
-        failed_count = 0
-        failed_rows = []
+        if not data:
+            return Response(
+                {
+                    "created_count": 0,
+                    "skipped_count": 0,
+                    "failed_count": 0,
+                    "failed": [],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        user = request.user
 
         existing_numbers = set(
             Beneficiary.objects.filter(
@@ -255,6 +265,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                             "childNumber",
                             item.get("child_number", ""),
                         )
+                        or ""
                     ).strip()
                 ]
             ).values_list(
@@ -263,75 +274,68 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             )
         )
 
-        for idx, item in enumerate(data):
-            try:
-                if not isinstance(item, dict):
-                    failed_count += 1
-                    failed_rows.append(
-                        {
-                            "row": idx + 1,
-                            "errors": "Invalid row format.",
-                        }
-                    )
-                    continue
+        objects = []
+        failed_rows = []
+        skipped_count = 0
 
-                normalized_item = {
-                    "communityNumber": item.get(
-                        "communityNumber",
-                        item.get("community_number", ""),
-                    ),
-                    "lastName": item.get(
+        seen_numbers = set()
+
+        for idx, item in enumerate(data, start=1):
+            if not isinstance(item, dict):
+                failed_rows.append(
+                    {
+                        "row": idx,
+                        "errors": "Invalid row format.",
+                    }
+                )
+                continue
+
+            child_number = str(
+                item.get(
+                    "childNumber",
+                    item.get("child_number", ""),
+                )
+                or ""
+            ).strip()
+
+            if not child_number:
+                failed_rows.append(
+                    {
+                        "row": idx,
+                        "errors": {
+                            "childNumber": [
+                                "This field is required."
+                            ]
+                        },
+                    }
+                )
+                continue
+
+            if child_number in existing_numbers:
+                skipped_count += 1
+                continue
+
+            if child_number in seen_numbers:
+                skipped_count += 1
+                continue
+
+            seen_numbers.add(child_number)
+
+            try:
+                last_name = str(
+                    item.get(
                         "lastName",
                         item.get("last_name", ""),
-                    ),
-                    "childNumber": item.get(
-                        "childNumber",
-                        item.get("child_number", ""),
-                    ),
-                    "participantCaseNumber": item.get(
-                        "participantCaseNumber",
-                        item.get("participant_case_number", ""),
-                    ),
-                    "gender": item.get("gender", "Female"),
-                    "shortName": item.get(
-                        "shortName",
-                        item.get("short_name", ""),
-                    ),
-                    "birthdate": item.get("birthdate"),
-                    "age": item.get("age"),
-                    "village": item.get("village", ""),
-                    "sponsorshipStatus": item.get(
-                        "sponsorshipStatus",
-                        item.get(
-                            "sponsorship_status",
-                            "Sponsored",
-                        ),
-                    ),
-                    "enrollmentDate": item.get(
-                        "enrollmentDate",
-                        item.get("enrollment_date"),
-                    ),
-                    "narrativeDate": item.get(
-                        "narrativeDate",
-                        item.get("narrative_date"),
-                    ),
-                    "photoDate": item.get(
-                        "photoDate",
-                        item.get("photo_date"),
-                    ),
-                }
-
-                child_number = str(
-                    normalized_item["childNumber"] or ""
+                    )
+                    or ""
                 ).strip()
 
-                if not child_number:
-                    failed_count += 1
+                if not last_name:
                     failed_rows.append(
                         {
-                            "row": idx + 1,
+                            "row": idx,
                             "errors": {
-                                "childNumber": [
+                                "lastName": [
                                     "This field is required."
                                 ]
                             },
@@ -339,36 +343,132 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                     )
                     continue
 
-                if child_number in existing_numbers:
-                    skipped_count += 1
-                    continue
+                gender = str(
+                    item.get("gender", "Female")
+                    or "Female"
+                ).strip()
 
-                serializer = BeneficiaryDetailSerializer(
-                    data=normalized_item,
-                    context={"request": request},
+                short_name = str(
+                    item.get(
+                        "shortName",
+                        item.get("short_name", ""),
+                    )
+                    or ""
+                ).strip()
+
+                community_number = str(
+                    item.get(
+                        "communityNumber",
+                        item.get("community_number", ""),
+                    )
+                    or ""
+                ).strip()
+
+                participant_case_number = str(
+                    item.get(
+                        "participantCaseNumber",
+                        item.get(
+                            "participant_case_number",
+                            "",
+                        ),
+                    )
+                    or ""
+                ).strip()
+
+                village = str(
+                    item.get("village", "")
+                    or ""
+                ).strip()
+
+                sponsorship_status = str(
+                    item.get(
+                        "sponsorshipStatus",
+                        item.get(
+                            "sponsorship_status",
+                            "Sponsored",
+                        ),
+                    )
+                    or "Sponsored"
+                ).strip()
+
+                birthdate = item.get(
+                    "birthdate"
                 )
 
-                if serializer.is_valid():
-                    serializer.save()
-                    existing_numbers.add(child_number)
-                    created_count += 1
-                else:
-                    failed_count += 1
-                    failed_rows.append(
-                        {
-                            "row": idx + 1,
-                            "errors": serializer.errors,
-                        }
-                    )
+                enrollment_date = item.get(
+                    "enrollmentDate",
+                    item.get("enrollment_date"),
+                )
 
-            except Exception as e:
-                failed_count += 1
+                narrative_date = item.get(
+                    "narrativeDate",
+                    item.get("narrative_date"),
+                )
+
+                photo_date = item.get(
+                    "photoDate",
+                    item.get("photo_date"),
+                )
+
+                age = item.get("age")
+
+                objects.append(
+                    Beneficiary(
+                        community_number=community_number,
+                        last_name=last_name,
+                        child_number=child_number,
+                        participant_case_number=participant_case_number,
+                        gender=gender or "Female",
+                        short_name=short_name,
+                        birthdate=birthdate or None,
+                        age=age if age not in ("", None) else None,
+                        village=village,
+                        sponsorship_status=sponsorship_status or "Sponsored",
+                        enrollment_date=enrollment_date or None,
+                        narrative_date=narrative_date or None,
+                        photo_date=photo_date or None,
+                        created_by=user,
+                    )
+                )
+
+            except Exception as exc:
                 failed_rows.append(
                     {
-                        "row": idx + 1,
-                        "errors": str(e),
+                        "row": idx,
+                        "errors": str(exc),
                     }
                 )
+
+        created_count = 0
+
+        if objects:
+            try:
+                with transaction.atomic():
+                    created = Beneficiary.objects.bulk_create(
+                        objects,
+                        batch_size=500,
+                        ignore_conflicts=True,
+                    )
+
+                    created_count = len(created)
+
+            except Exception as exc:
+                return Response(
+                    {
+                        "created_count": 0,
+                        "skipped_count": skipped_count,
+                        "failed_count": len(data),
+                        "failed": [
+                            {
+                                "row": 0,
+                                "errors": str(exc),
+                            }
+                        ],
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        failed_count = len(failed_rows)
 
         return Response(
             {

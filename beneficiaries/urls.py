@@ -1,9 +1,8 @@
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
     BeneficiaryViewSet,
-    SupportLogViewSet,
     EmployeeActivityView,
     DashboardView,
 )
@@ -11,15 +10,9 @@ from .views import (
 router = DefaultRouter()
 
 router.register(
-    r"beneficiaries",
+    r"",
     BeneficiaryViewSet,
     basename="beneficiary",
-)
-
-router.register(
-    r"support-logs",
-    SupportLogViewSet,
-    basename="support-log",
 )
 
 urlpatterns = [
