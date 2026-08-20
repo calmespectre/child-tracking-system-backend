@@ -78,22 +78,15 @@ class SupportLogSerializer(serializers.ModelSerializer):
         ).strip()
 
         if short_name and last_name:
-            if (
-                short_name.lower()
-                == last_name.lower()
-            ):
+            if short_name.lower() == last_name.lower():
                 return short_name
 
-            return (
-                f"{short_name} {last_name}"
-            ).strip()
+            return f"{short_name} {last_name}".strip()
 
         return short_name or last_name
 
 
-class BeneficiaryListSerializer(
-    serializers.ModelSerializer
-):
+class BeneficiaryListSerializer(serializers.ModelSerializer):
     communityNumber = serializers.CharField(
         source="community_number",
         read_only=True,
@@ -157,6 +150,7 @@ class BeneficiaryListSerializer(
     documentCount = serializers.IntegerField(
         source="document_count",
         read_only=True,
+        default=0,
     )
 
     hasDocuments = serializers.SerializerMethodField()
@@ -186,12 +180,10 @@ class BeneficiaryListSerializer(
         ]
 
     def get_hasDocuments(self, obj):
-        return obj.document_count > 0
+        return getattr(obj, "document_count", 0) > 0
 
 
-class BeneficiaryDetailSerializer(
-    serializers.ModelSerializer
-):
+class BeneficiaryDetailSerializer(serializers.ModelSerializer):
     notes = NoteSerializer(
         many=True,
         read_only=True,
@@ -304,13 +296,8 @@ class BeneficiaryDetailSerializer(
     def create(self, validated_data):
         request = self.context.get("request")
 
-        if (
-            request
-            and request.user.is_authenticated
-        ):
-            validated_data["created_by"] = (
-                request.user
-            )
+        if request and request.user.is_authenticated:
+            validated_data["created_by"] = request.user
 
         return Beneficiary.objects.create(
             **validated_data
