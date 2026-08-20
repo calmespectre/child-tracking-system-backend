@@ -1,7 +1,6 @@
-from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.filters import OrderingFilter
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
@@ -21,7 +20,24 @@ class BursaryViewSet(ModelViewSet):
     serializer_class = BursarySerializer
     permission_classes = [IsAuthenticated]
     pagination_class = BursaryPagination
-    filter_backends = [OrderingFilter]
+
+    filter_backends = [
+        SearchFilter,
+        OrderingFilter,
+    ]
+
+    search_fields = [
+        "zone",
+        "case_number",
+        "admission_number",
+        "name",
+        "school",
+        "grade",
+        "performance",
+        "account_number",
+        "branch",
+    ]
+
     ordering_fields = [
         "id",
         "created_at",
@@ -32,31 +48,11 @@ class BursaryViewSet(ModelViewSet):
         "grade",
         "amount",
     ]
+
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        queryset = Bursary.objects.all()
-
-        search = self.request.query_params.get("search", "").strip()
-
-        if search:
-            queryset = queryset.filter(
-                Q(zone__icontains=search)
-                | Q(case_number__icontains=search)
-                | Q(admission_number__icontains=search)
-                | Q(name__icontains=search)
-                | Q(school__icontains=search)
-                | Q(grade__icontains=search)
-                | Q(performance__icontains=search)
-                | Q(account_number__icontains=search)
-                | Q(branch__icontains=search)
-            )
-
-        return queryset.order_by(
-            "-created_at"
-            if self.request.query_params.get("ordering", "-created_at") == "-created_at"
-            else "created_at"
-        )
+        return Bursary.objects.all()
 
     @action(detail=False, methods=["post"], url_path="import")
     def import_bursaries(self, request):
@@ -75,25 +71,32 @@ class BursaryViewSet(ModelViewSet):
         for index, row in enumerate(rows, start=1):
             try:
                 Bursary.objects.create(
-                    zone=row.get("zone", ""),
-                    case_number=row.get("case_number", ""),
-                    admission_number=row.get("admission_number", ""),
-                    name=row.get("name", ""),
-                    school=row.get("school", ""),
-                    grade=row.get("grade", ""),
-                    performance=row.get("performance", ""),
-                    account_number=row.get("account_number", ""),
-                    branch=row.get("branch", ""),
-                    amount=row.get("amount", 0),
+                    zone=str(row.get("zone", "")).strip(),
+                    case_number=str(row.get("case_number", "")).strip(),
+                    admission_number=str(
+                        row.get("admission_number", "")
+                    ).strip(),
+                    name=str(row.get("name", "")).strip(),
+                    school=str(row.get("school", "")).strip(),
+                    grade=str(row.get("grade", "")).strip(),
+                    performance=str(row.get("performance", "")).strip(),
+                    account_number=str(
+                        row.get("account_number", "")
+                    ).strip(),
+                    branch=str(row.get("branch", "")).strip(),
+                    amount=row.get("amount", 0) or 0,
                 )
+
                 created += 1
 
             except Exception as exc:
                 skipped += 1
-                errors.append({
-                    "row": index,
-                    "error": str(exc),
-                })
+                errors.append(
+                    {
+                        "row": index,
+                        "error": str(exc),
+                    }
+                )
 
         return Response(
             {
