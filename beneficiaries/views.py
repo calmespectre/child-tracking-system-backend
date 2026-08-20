@@ -68,9 +68,11 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         if self.action == "list":
             queryset = queryset.annotate(
-                document_count=Count("documents", distinct=True)
+                document_count=Count(
+                    "documents",
+                    distinct=True,
+                )
             )
-
         else:
             queryset = queryset.prefetch_related(
                 "notes",
@@ -78,11 +80,13 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 "support_logs",
             )
 
-        if not (
+        is_admin = (
             getattr(user, "is_staff", False)
             or getattr(user, "is_superuser", False)
             or getattr(user, "role", "").lower() == "admin"
-        ):
+        )
+
+        if not is_admin:
             queryset = queryset.filter(
                 created_by=user
             )
@@ -98,12 +102,12 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         if document_filter == "uploaded":
             queryset = queryset.filter(
-                documents__isnull=False
-            ).distinct()
+                document_count__gt=0
+            )
 
         elif document_filter == "missing":
             queryset = queryset.filter(
-                documents__isnull=True
+                document_count=0
             )
 
         return queryset
@@ -115,14 +119,18 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
         serializer = NoteSerializer(
             data={
                 "text": request.data.get("text", ""),
-                "author": request.user.email
-                if request.user.is_authenticated
-                else "Anonymous",
+                "author": (
+                    request.user.email
+                    if request.user.is_authenticated
+                    else "Anonymous"
+                ),
             }
         )
 
         if serializer.is_valid():
-            serializer.save(beneficiary=beneficiary)
+            serializer.save(
+                beneficiary=beneficiary
+            )
 
             return Response(
                 serializer.data,
@@ -197,23 +205,35 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
         serializer = SupportLogSerializer(
             data={
                 "beneficiary": beneficiary.id,
-                "type": request.data.get("type", "Cash"),
-                "amount": request.data.get("amount") or 0,
+                "type": request.data.get(
+                    "type",
+                    "Cash",
+                ),
+                "amount": request.data.get(
+                    "amount"
+                ) or 0,
                 "date": request.data.get("date"),
-                "notes": request.data.get("notes", ""),
+                "notes": request.data.get(
+                    "notes",
+                    "",
+                ),
                 "status": request.data.get(
                     "status",
                     "Pending",
                 ),
             },
-            context={"request": request},
+            context={
+                "request": request
+            },
         )
 
         if serializer.is_valid():
             serializer.save(
-                logged_by=request.user.email
-                if request.user.is_authenticated
-                else ""
+                logged_by=(
+                    request.user.email
+                    if request.user.is_authenticated
+                    else ""
+                )
             )
 
             return Response(
@@ -242,7 +262,9 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        deleted_count, _ = Beneficiary.objects.all().delete()
+        deleted_count, _ = (
+            Beneficiary.objects.all().delete()
+        )
 
         return Response(
             {
@@ -258,7 +280,11 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         if not isinstance(data, list):
             return Response(
-                {"error": "Expected a list of beneficiaries"},
+                {
+                    "error": (
+                        "Expected a list of beneficiaries"
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -275,25 +301,33 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
         user = request.user
 
+        child_numbers = [
+            str(
+                item.get(
+                    "childNumber",
+                    item.get(
+                        "child_number",
+                        "",
+                    ),
+                )
+            ).strip()
+            for item in data
+            if isinstance(item, dict)
+            and str(
+                item.get(
+                    "childNumber",
+                    item.get(
+                        "child_number",
+                        "",
+                    ),
+                )
+                or ""
+            ).strip()
+        ]
+
         existing_numbers = set(
             Beneficiary.objects.filter(
-                child_number__in=[
-                    str(
-                        item.get(
-                            "childNumber",
-                            item.get("child_number", ""),
-                        )
-                    ).strip()
-                    for item in data
-                    if isinstance(item, dict)
-                    and str(
-                        item.get(
-                            "childNumber",
-                            item.get("child_number", ""),
-                        )
-                        or ""
-                    ).strip()
-                ]
+                child_number__in=child_numbers
             ).values_list(
                 "child_number",
                 flat=True,
@@ -305,12 +339,17 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
         skipped_count = 0
         seen_numbers = set()
 
-        for idx, item in enumerate(data, start=1):
+        for idx, item in enumerate(
+            data,
+            start=1,
+        ):
             if not isinstance(item, dict):
                 failed_rows.append(
                     {
                         "row": idx,
-                        "errors": "Invalid row format.",
+                        "errors": (
+                            "Invalid row format."
+                        ),
                     }
                 )
                 continue
@@ -318,7 +357,10 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             child_number = str(
                 item.get(
                     "childNumber",
-                    item.get("child_number", ""),
+                    item.get(
+                        "child_number",
+                        "",
+                    ),
                 )
                 or ""
             ).strip()
@@ -350,7 +392,10 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 last_name = str(
                     item.get(
                         "lastName",
-                        item.get("last_name", ""),
+                        item.get(
+                            "last_name",
+                            "",
+                        ),
                     )
                     or ""
                 ).strip()
@@ -369,14 +414,20 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                     continue
 
                 gender = str(
-                    item.get("gender", "Female")
+                    item.get(
+                        "gender",
+                        "Female",
+                    )
                     or "Female"
                 ).strip()
 
                 short_name = str(
                     item.get(
                         "shortName",
-                        item.get("short_name", ""),
+                        item.get(
+                            "short_name",
+                            "",
+                        ),
                     )
                     or ""
                 ).strip()
@@ -384,7 +435,10 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 community_number = str(
                     item.get(
                         "communityNumber",
-                        item.get("community_number", ""),
+                        item.get(
+                            "community_number",
+                            "",
+                        ),
                     )
                     or ""
                 ).strip()
@@ -401,7 +455,10 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 ).strip()
 
                 village = str(
-                    item.get("village", "")
+                    item.get(
+                        "village",
+                        "",
+                    )
                     or ""
                 ).strip()
 
@@ -416,21 +473,29 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                     or "Sponsored"
                 ).strip()
 
-                birthdate = item.get("birthdate")
+                birthdate = item.get(
+                    "birthdate"
+                )
 
                 enrollment_date = item.get(
                     "enrollmentDate",
-                    item.get("enrollment_date"),
+                    item.get(
+                        "enrollment_date"
+                    ),
                 )
 
                 narrative_date = item.get(
                     "narrativeDate",
-                    item.get("narrative_date"),
+                    item.get(
+                        "narrative_date"
+                    ),
                 )
 
                 photo_date = item.get(
                     "photoDate",
-                    item.get("photo_date"),
+                    item.get(
+                        "photo_date"
+                    ),
                 )
 
                 age = item.get("age")
@@ -444,12 +509,31 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                         gender=gender or "Female",
                         short_name=short_name,
                         birthdate=birthdate or None,
-                        age=age if age not in ("", None) else None,
+                        age=(
+                            age
+                            if age not in (
+                                "",
+                                None,
+                            )
+                            else None
+                        ),
                         village=village,
-                        sponsorship_status=sponsorship_status or "Sponsored",
-                        enrollment_date=enrollment_date or None,
-                        narrative_date=narrative_date or None,
-                        photo_date=photo_date or None,
+                        sponsorship_status=(
+                            sponsorship_status
+                            or "Sponsored"
+                        ),
+                        enrollment_date=(
+                            enrollment_date
+                            or None
+                        ),
+                        narrative_date=(
+                            narrative_date
+                            or None
+                        ),
+                        photo_date=(
+                            photo_date
+                            or None
+                        ),
                         created_by=user,
                     )
                 )
@@ -467,10 +551,12 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
         if objects:
             try:
                 with transaction.atomic():
-                    created = Beneficiary.objects.bulk_create(
-                        objects,
-                        batch_size=500,
-                        ignore_conflicts=True,
+                    created = (
+                        Beneficiary.objects.bulk_create(
+                            objects,
+                            batch_size=500,
+                            ignore_conflicts=True,
+                        )
                     )
 
                     created_count = len(created)
