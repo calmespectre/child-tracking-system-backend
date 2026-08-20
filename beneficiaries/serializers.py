@@ -147,6 +147,12 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    documentCount = serializers.IntegerField(
+        read_only=True,
+    )
+
+    hasDocuments = serializers.SerializerMethodField()
+
     class Meta:
         model = Beneficiary
         fields = [
@@ -167,7 +173,12 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
             "createdAt",
             "updatedAt",
             "createdBy",
+            "documentCount",
+            "hasDocuments",
         ]
+
+    def get_hasDocuments(self, obj):
+        return getattr(obj, "documentCount", 0) > 0
 
 
 class BeneficiaryDetailSerializer(serializers.ModelSerializer):
