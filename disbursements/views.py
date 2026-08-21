@@ -28,11 +28,18 @@ class BursaryViewSet(ModelViewSet):
         "id",
         "created_at",
         "updated_at",
-        "name",
+        "beneficiary_name",
         "zone",
+        "case_number",
+        "admission_number",
         "school",
         "grade",
+        "performance",
+        "account_number",
+        "branch",
         "amount",
+        "date",
+        "status",
     ]
 
     ordering = ["-created_at"]
@@ -50,7 +57,7 @@ class BursaryViewSet(ModelViewSet):
                 Q(zone__icontains=search)
                 | Q(case_number__icontains=search)
                 | Q(admission_number__icontains=search)
-                | Q(name__icontains=search)
+                | Q(beneficiary_name__icontains=search)
                 | Q(school__icontains=search)
                 | Q(grade__icontains=search)
                 | Q(performance__icontains=search)
@@ -71,9 +78,7 @@ class BursaryViewSet(ModelViewSet):
         if not isinstance(rows, list):
             return Response(
                 {
-                    "detail": (
-                        "Expected a list of bursary records."
-                    )
+                    "detail": "Expected a list of bursary records."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -84,35 +89,77 @@ class BursaryViewSet(ModelViewSet):
 
         for index, row in enumerate(rows, start=1):
             try:
+                if not isinstance(row, dict):
+                    raise ValueError(
+                        "Each imported row must be an object."
+                    )
+
+                beneficiary_name = str(
+                    row.get(
+                        "beneficiary_name",
+                        row.get("name", "")
+                    ) or ""
+                ).strip()
+
+                if not beneficiary_name:
+                    raise ValueError(
+                        "Beneficiary name is required."
+                    )
+
+                amount = row.get("amount", 0)
+
+                if amount in ("", None):
+                    amount = 0
+
                 Bursary.objects.create(
-                    zone=row.get("zone", ""),
-                    case_number=row.get(
-                        "case_number",
-                        ""
-                    ),
-                    admission_number=row.get(
-                        "admission_number",
-                        ""
-                    ),
-                    name=row.get("name", ""),
-                    school=row.get("school", ""),
-                    grade=row.get("grade", ""),
-                    performance=row.get(
-                        "performance",
-                        ""
-                    ),
-                    account_number=row.get(
-                        "account_number",
-                        ""
-                    ),
-                    branch=row.get(
-                        "branch",
-                        ""
-                    ),
-                    amount=row.get(
-                        "amount",
-                        0
-                    ),
+                    zone=str(
+                        row.get("zone", "") or ""
+                    ).strip(),
+
+                    case_number=str(
+                        row.get("case_number", "") or ""
+                    ).strip(),
+
+                    admission_number=str(
+                        row.get("admission_number", "") or ""
+                    ).strip(),
+
+                    beneficiary_name=beneficiary_name,
+
+                    school=str(
+                        row.get("school", "") or ""
+                    ).strip(),
+
+                    grade=str(
+                        row.get("grade", "") or ""
+                    ).strip(),
+
+                    performance=str(
+                        row.get("performance", "") or ""
+                    ).strip(),
+
+                    account_number=str(
+                        row.get("account_number", "") or ""
+                    ).strip(),
+
+                    branch=str(
+                        row.get("branch", "") or ""
+                    ).strip(),
+
+                    amount=amount,
+
+                    date=row.get("date") or None,
+
+                    status=row.get(
+                        "status",
+                        "Pending"
+                    ) or "Pending",
+
+                    notes=str(
+                        row.get("notes", "") or ""
+                    ).strip(),
+
+                    created_by=request.user,
                 )
 
                 created += 1
@@ -132,6 +179,7 @@ class BursaryViewSet(ModelViewSet):
                 "created": created,
                 "skipped": skipped,
                 "errors": errors,
+                "total": len(rows),
             },
             status=status.HTTP_201_CREATED,
         )
