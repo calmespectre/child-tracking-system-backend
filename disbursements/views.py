@@ -92,14 +92,12 @@ class BursaryViewSet(ModelViewSet):
             try:
                 if not isinstance(row, dict):
                     raise ValueError(
-                        "Each row must be an object."
+                        "Each imported row must be an object."
                     )
 
                 beneficiary_name = str(
-                    row.get(
-                        "beneficiary_name",
-                        row.get("name", "")
-                    )
+                    row.get("beneficiary_name")
+                    or row.get("name")
                     or ""
                 ).strip()
 
@@ -110,54 +108,48 @@ class BursaryViewSet(ModelViewSet):
 
                 amount = row.get("amount", 0)
 
-                if amount in (None, ""):
+                if amount in ("", None):
                     amount = 0
 
                 Bursary.objects.create(
                     zone=str(
-                        row.get("zone", "") or ""
+                        row.get("zone") or ""
                     ).strip(),
 
                     case_number=str(
-                        row.get(
-                            "case_number",
-                            row.get("caseNumber", "")
-                        )
+                        row.get("case_number")
+                        or row.get("caseNumber")
                         or ""
                     ).strip(),
 
                     admission_number=str(
-                        row.get(
-                            "admission_number",
-                            row.get("admissionNumber", "")
-                        )
+                        row.get("admission_number")
+                        or row.get("admissionNumber")
                         or ""
                     ).strip(),
 
                     beneficiary_name=beneficiary_name,
 
                     school=str(
-                        row.get("school", "") or ""
+                        row.get("school") or ""
                     ).strip(),
 
                     grade=str(
-                        row.get("grade", "") or ""
+                        row.get("grade") or ""
                     ).strip(),
 
                     performance=str(
-                        row.get("performance", "") or ""
+                        row.get("performance") or ""
                     ).strip(),
 
                     account_number=str(
-                        row.get(
-                            "account_number",
-                            row.get("accountNumber", "")
-                        )
+                        row.get("account_number")
+                        or row.get("accountNumber")
                         or ""
                     ).strip(),
 
                     branch=str(
-                        row.get("branch", "") or ""
+                        row.get("branch") or ""
                     ).strip(),
 
                     amount=amount,
@@ -165,15 +157,12 @@ class BursaryViewSet(ModelViewSet):
                     date=row.get("date") or None,
 
                     status=str(
-                        row.get(
-                            "status",
-                            "Pending"
-                        )
+                        row.get("status")
                         or "Pending"
                     ).strip(),
 
                     notes=str(
-                        row.get("notes", "") or ""
+                        row.get("notes") or ""
                     ).strip(),
                 )
 
