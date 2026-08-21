@@ -63,6 +63,7 @@ class BursaryViewSet(ModelViewSet):
                 | Q(performance__icontains=search)
                 | Q(account_number__icontains=search)
                 | Q(branch__icontains=search)
+                | Q(status__icontains=search)
             )
 
         return queryset
@@ -91,14 +92,15 @@ class BursaryViewSet(ModelViewSet):
             try:
                 if not isinstance(row, dict):
                     raise ValueError(
-                        "Each imported row must be an object."
+                        "Each row must be an object."
                     )
 
                 beneficiary_name = str(
                     row.get(
                         "beneficiary_name",
                         row.get("name", "")
-                    ) or ""
+                    )
+                    or ""
                 ).strip()
 
                 if not beneficiary_name:
@@ -108,7 +110,7 @@ class BursaryViewSet(ModelViewSet):
 
                 amount = row.get("amount", 0)
 
-                if amount in ("", None):
+                if amount in (None, ""):
                     amount = 0
 
                 Bursary.objects.create(
@@ -117,11 +119,19 @@ class BursaryViewSet(ModelViewSet):
                     ).strip(),
 
                     case_number=str(
-                        row.get("case_number", "") or ""
+                        row.get(
+                            "case_number",
+                            row.get("caseNumber", "")
+                        )
+                        or ""
                     ).strip(),
 
                     admission_number=str(
-                        row.get("admission_number", "") or ""
+                        row.get(
+                            "admission_number",
+                            row.get("admissionNumber", "")
+                        )
+                        or ""
                     ).strip(),
 
                     beneficiary_name=beneficiary_name,
@@ -139,7 +149,11 @@ class BursaryViewSet(ModelViewSet):
                     ).strip(),
 
                     account_number=str(
-                        row.get("account_number", "") or ""
+                        row.get(
+                            "account_number",
+                            row.get("accountNumber", "")
+                        )
+                        or ""
                     ).strip(),
 
                     branch=str(
@@ -150,16 +164,17 @@ class BursaryViewSet(ModelViewSet):
 
                     date=row.get("date") or None,
 
-                    status=row.get(
-                        "status",
-                        "Pending"
-                    ) or "Pending",
+                    status=str(
+                        row.get(
+                            "status",
+                            "Pending"
+                        )
+                        or "Pending"
+                    ).strip(),
 
                     notes=str(
                         row.get("notes", "") or ""
                     ).strip(),
-
-                    created_by=request.user,
                 )
 
                 created += 1
@@ -179,7 +194,6 @@ class BursaryViewSet(ModelViewSet):
                 "created": created,
                 "skipped": skipped,
                 "errors": errors,
-                "total": len(rows),
             },
             status=status.HTTP_201_CREATED,
         )
