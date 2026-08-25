@@ -3,11 +3,7 @@ from django.conf import settings
 
 
 class Beneficiary(models.Model):
-    GENDER_CHOICES = [
-        ("Female", "Female"),
-        ("Male", "Male"),
-    ]
-
+    GENDER_CHOICES = [("Female", "Female"), ("Male", "Male")]
     STATUS_CHOICES = [
         ("Sponsored", "Sponsored"),
         ("Pre-Sponsored", "Pre-Sponsored"),
@@ -40,13 +36,8 @@ class Beneficiary(models.Model):
     photo_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="created_beneficiaries",
-    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name="created_beneficiaries")
 
     class Meta:
         ordering = ["-child_number"]
