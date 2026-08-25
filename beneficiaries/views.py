@@ -1,803 +1,371 @@
 import os
-import secrets
-import string
-import requests
+import re
+from datetime import datetime, timedelta
 
-from django.contrib.auth import get_user_model, authenticate
-from django.contrib.auth.hashers import check_password
+from django.db import models
+from django.db.models import Q, Count, Sum
+from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 
-from rest_framework.views import APIView
+from rest_framework import viewsets, status, filters
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
+from django_filters.rest_framework import DjangoFilterBackend
 
-from rest_framework_simplejwt.tokens import RefreshToken
-
-from .models import OTP, UserSession
+from .models import Beneficiary, Note, Document, SupportLog, Guardian
 from .serializers import (
-    RequestOTPSerializer,
-    VerifyOTPSerializer,
-    CreateUserSerializer,
-    UserSerializer,
-    UserSessionSerializer,
+    BeneficiaryListSerializer,
+    BeneficiaryDetailSerializer,
+    NoteSerializer,
+    DocumentSerializer,
+    SupportLogSerializer,
+    GuardianSerializer,
 )
 from .permissions import IsAdmin
 
-
 User = get_user_model()
 
-OTP_INTERVAL_HOURS = 5
-SESSION_TIMEOUT_HOURS = 5
 
-
-def send_brevo_email(
-    to_emails,
-    subject,
-    text_content,
-    html_content=None,
-):
-    api_key = os.environ.get("BREVO_API_KEY")
-    sender_email = os.environ.get("BREVO_SENDER_EMAIL")
-    sender_name = os.environ.get(
-        "BREVO_SENDER_NAME",
-        "MKCDP Child Tracking System",
-    )
-
-    if not api_key:
-        raise ValueError("BREVO_API_KEY is not configured.")
-
-    if not sender_email:
-        raise ValueError("BREVO_SENDER_EMAIL is not configured.")
-
-    if isinstance(to_emails, str):
-        to_emails = [to_emails]
-
-    payload = {
-        "sender": {
-            "name": sender_name,
-            "email": sender_email,
-        },
-        "to": [
-            {"email": email}
-            for email in to_emails
-        ],
-        "subject": subject,
-        "textContent": text_content,
-    }
-
-    if html_content:
-        payload["htmlContent"] = html_content
-
-    response = requests.post(
-        "https://api.brevo.com/v3/smtp/email",
-        headers={
-            "accept": "application/json",
-            "api-key": api_key,
-            "content-type": "application/json",
-        },
-        json=payload,
-        timeout=10,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-
-def get_client_ip(request):
-    x_forwarded_for = request.META.get(
-        "HTTP_X_FORWARDED_FOR"
-    )
-
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
-
-    x_real_ip = request.META.get("HTTP_X_REAL_IP")
-
-    if x_real_ip:
-        return x_real_ip.strip()
-
-    return request.META.get(
-        "REMOTE_ADDR",
-        "",
-    ).strip()
-
-
-def get_tokens_for_user(user):
-    refresh = RefreshToken.for_user(user)
-
-    refresh["role"] = user.role
-    refresh["name"] = (
-        user.get_full_name()
-        or user.username
-    )
-    refresh["email"] = user.email
-
-    return {
-        "refresh": str(refresh),
-        "access": str(refresh.access_token),
-    }
-
-
-def otp_recently_verified(user):
-    if not user.last_password_auth:
-        return False
-
-    elapsed = (
-        timezone.now()
-        - user.last_password_auth
-    )
-
-    return elapsed < timezone.timedelta(
-        hours=OTP_INTERVAL_HOURS
-    )
-
-
-def create_login_response(user, request):
-    ip = get_client_ip(request)
-    ua = request.META.get(
-        "HTTP_USER_AGENT",
-        "",
-    )
-
-    now = timezone.now()
-
-    UserSession.objects.create(
-        user=user,
-        action="LOGIN",
-        ip_address=ip,
-        user_agent=ua,
-    )
-
-    user.last_ip = ip
-    user.last_activity = now
-
-    user.save(
-        update_fields=[
-            "last_ip",
-            "last_activity",
-        ]
-    )
-
-    tokens = get_tokens_for_user(user)
-
-    login_time = now.strftime(
-        "%d-%m-%Y %H:%M:%S"
-    )
-
-    device_info = ua or "Unknown device"
-
-    try:
-        send_brevo_email(
-            to_emails=user.email,
-            subject="MKCDP Login Notification",
-            text_content=(
-                f"Dear {user.get_full_name() or user.username},\n\n"
-                "A login to your MKCDP Child-Tracking-System account was detected.\n\n"
-                f"Email: {user.email}\n"
-                f"Time: {login_time}\n"
-                f"Device: {device_info}\n"
-                f"IP Address: {ip}\n\n"
-                "If this was not you, please contact the administrator immediately."
-            ),
-            html_content=f"""
-                <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
-                    <h2>MKCDP Login Notification</h2>
-                    <p>Dear {user.get_full_name() or user.username},</p>
-                    <p>A login to your MKCDP Child-Tracking-System account was detected.</p>
-                    <p><strong>Email:</strong> {user.email}</p>
-                    <p><strong>Time:</strong> {login_time}</p>
-                    <p><strong>Device:</strong> {device_info}</p>
-                    <p><strong>IP Address:</strong> {ip}</p>
-                    <p>If this was not you, please contact the administrator immediately.</p>
-                </div>
-            """,
-        )
-    except Exception as exc:
-        print(
-            "USER LOGIN EMAIL ERROR:",
-            repr(exc),
-        )
-
-    admin_emails = list(
-        User.objects.filter(
-            role="admin",
-            is_active=True,
-        ).values_list(
-            "email",
-            flat=True,
-        )
-    )
-
-    if admin_emails:
-        try:
-            send_brevo_email(
-                to_emails=admin_emails,
-                subject="MKCDP - New User Login",
-                text_content=(
-                    "A user has logged into the MKCDP Child-Tracking-System.\n\n"
-                    f"User: {user.email}\n"
-                    f"Role: {user.role}\n"
-                    f"Time: {login_time}\n"
-                    f"Device: {device_info}\n"
-                    f"IP Address: {ip}\n\n"
-                    "This is an automated notification."
-                ),
-                html_content=f"""
-                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
-                        <h2>MKCDP - New User Login</h2>
-                        <p>A user has logged into the MKCDP Child-Tracking-System.</p>
-                        <p><strong>User:</strong> {user.email}</p>
-                        <p><strong>Role:</strong> {user.role}</p>
-                        <p><strong>Time:</strong> {login_time}</p>
-                        <p><strong>Device:</strong> {device_info}</p>
-                        <p><strong>IP Address:</strong> {ip}</p>
-                        <p>This is an automated notification.</p>
-                    </div>
-                """,
-            )
-        except Exception as exc:
-            print(
-                "ADMIN LOGIN EMAIL ERROR:",
-                repr(exc),
-            )
-
-    return {
-        **tokens,
-        "user": {
-            "name": (
-                user.get_full_name()
-                or user.username
-            ),
-            "email": user.email,
-            "role": user.role,
-        },
-    }
-
-
-class RequestOTPView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        serializer = RequestOTPSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        email = serializer.validated_data[
-            "email"
-        ]
-
-        password = serializer.validated_data.get(
-            "password",
-            "",
-        )
-
-        if not password:
-            return Response(
-                {
-                    "detail": "Password is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user = authenticate(
-            request,
-            email=email,
-            password=password,
-        )
-
-        if not user:
-            return Response(
-                {
-                    "detail": "Invalid email or password."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not user.is_active:
-            return Response(
-                {
-                    "detail": "Your account has been deactivated. Please contact the administrator."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        if otp_recently_verified(user):
-            response_data = create_login_response(
-                user,
-                request,
-            )
-
-            response_data["requires_otp"] = False
-            response_data["detail"] = (
-                "Login successful."
-            )
-
-            return Response(
-                response_data,
-                status=status.HTTP_200_OK,
-            )
-
-        OTP.objects.filter(
-            user=user,
-            is_used=False,
-        ).update(
-            is_used=True
-        )
-
-        otp, code = OTP.create_for_user(
-            user
-        )
-
-        try:
-            result = send_brevo_email(
-                to_emails=email,
-                subject="Your MKCDP Child Tracking System login code",
-                text_content=(
-                    f"Here is your one-time login code: {code}. "
-                    "It expires in 10 minutes."
-                ),
-                html_content=f"""
-                    <div style="font-family:Arial,sans-serif;max-width:500px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
-                        <h2>MKCDP Child Tracking System</h2>
-                        <p>Your one-time login code is:</p>
-                        <div style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:20px;margin:20px 0;background:#f5f5f5;border-radius:10px;">
-                            {code}
-                        </div>
-                        <p>This code expires in 10 minutes.</p>
-                        <p>If you did not request this code, you can safely ignore this email.</p>
-                    </div>
-                """,
-            )
-
-            print(
-                "BREVO OTP RESPONSE:",
-                result,
-            )
-
-        except Exception as exc:
-            print(
-                "BREVO OTP ERROR:",
-                repr(exc),
-            )
-
-            otp.delete()
-
-            return Response(
-                {
-                    "detail": "The verification email could not be sent. Please try again."
-                },
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        return Response(
-            {
-                "requires_otp": True,
-                "detail": "OTP sent to email.",
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class VerifyOTPView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        serializer = VerifyOTPSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        email = serializer.validated_data[
-            "email"
-        ]
-
-        code = serializer.validated_data[
-            "code"
-        ]
-
-        try:
-            user = User.objects.get(
-                email__iexact=email
-            )
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "detail": "Invalid email or code."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not user.is_active:
-            return Response(
-                {
-                    "detail": "Your account has been deactivated. Please contact the administrator."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        otp = (
-            user.otps
-            .filter(
-                is_used=False
-            )
-            .order_by("-created_at")
-            .first()
-        )
-
-        if not otp:
-            return Response(
-                {
-                    "detail": "Invalid or expired code."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not otp.is_valid():
-            return Response(
-                {
-                    "detail": "Invalid or expired code."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not check_password(
-            code,
-            otp.code_hash,
-        ):
-            return Response(
-                {
-                    "detail": "Invalid or expired code."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        otp.is_used = True
-
-        otp.save(
-            update_fields=[
-                "is_used"
-            ]
-        )
-
-        now = timezone.now()
-
-        user.last_password_auth = now
-
-        user.save(
-            update_fields=[
-                "last_password_auth"
-            ]
-        )
-
-        response_data = create_login_response(
-            user,
-            request,
-        )
-
-        response_data["requires_otp"] = False
-
-        return Response(
-            response_data,
-            status=status.HTTP_200_OK,
-        )
-
-
-class LogoutView(APIView):
+class BeneficiaryViewSet(viewsets.ModelViewSet):
+    queryset = Beneficiary.objects.all()
     permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend,
+                       filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = {
+        "community_number": ["exact"],
+        "gender": ["exact"],
+        "sponsorship_status": ["exact"],
+        "village": ["exact"],
+    }
+    search_fields = ["last_name", "child_number", "short_name", "village"]
+    ordering_fields = [
+        "community_number",
+        "last_name",
+        "child_number",
+        "participant_case_number",
+        "gender",
+        "short_name",
+        "birthdate",
+        "sponsorship_status",
+        "enrollment_date",
+        "narrative_date",
+        "photo_date",
+        "age",
+        "village",
+        "created_at",
+    ]
+    ordering = ["-created_at"]
 
-    def post(self, request):
-        ip = get_client_ip(request)
+    def get_queryset(self):
+        queryset = super().get_queryset()
 
-        ua = request.META.get(
-            "HTTP_USER_AGENT",
-            "",
-        )
+        documents_filter = self.request.query_params.get("documents")
+        if documents_filter == "uploaded":
+            queryset = queryset.annotate(doc_count=Count(
+                "documents")).filter(doc_count__gt=0)
+        elif documents_filter == "missing":
+            queryset = queryset.annotate(
+                doc_count=Count("documents")).filter(doc_count=0)
 
-        UserSession.objects.create(
-            user=request.user,
-            action="LOGOUT",
-            ip_address=ip,
-            user_agent=ua,
-        )
+        status_param = self.request.query_params.get("status")
+        if status_param and status_param != "All":
+            queryset = queryset.filter(sponsorship_status=status_param)
 
-        request.user.last_activity = None
+        community = self.request.query_params.get("community_number")
+        if community:
+            queryset = queryset.filter(community_number=community)
 
-        request.user.save(
-            update_fields=[
-                "last_activity"
-            ]
-        )
+        return queryset
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return BeneficiaryListSerializer
+        return BeneficiaryDetailSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=False, methods=["get"])
+    def all(self, request):
+        queryset = self.get_queryset()
+        serializer = BeneficiaryListSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["post"])
+    def bulk(self, request):
+        data = request.data
+        if not isinstance(data, list):
+            return Response(
+                {"error": "Expected a list of beneficiaries"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created_count = 0
+        skipped_count = 0
+        failed_count = 0
+        failed_items = []
+
+        for item in data:
+            child_number = item.get("childNumber") or item.get("child_number")
+            if not child_number:
+                skipped_count += 1
+                continue
+
+            if Beneficiary.objects.filter(child_number=child_number).exists():
+                skipped_count += 1
+                continue
+
+            serializer = BeneficiaryDetailSerializer(
+                data=item,
+                context={"request": request},
+            )
+            if serializer.is_valid():
+                serializer.save(created_by=request.user)
+                created_count += 1
+            else:
+                failed_count += 1
+                failed_items.append(
+                    {"data": item, "errors": serializer.errors})
 
         return Response(
             {
-                "detail": "Logged out successfully."
+                "created_count": created_count,
+                "skipped_count": skipped_count,
+                "failed_count": failed_count,
+                "failed": failed_items,
             },
-            status=status.HTTP_200_OK,
-        )
-
-
-class CreateUserView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsAdmin,
-    ]
-
-    def post(self, request):
-        serializer = CreateUserSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        password = serializer.validated_data.get('password', '')
-        generated = False
-        if not password:
-            password = ''.join(secrets.choice(
-                string.ascii_letters + string.digits) for _ in range(12))
-            serializer.validated_data['password'] = password
-            generated = True
-
-        user = serializer.save()
-
-        response_data = {
-            "id": user.id,
-            "email": user.email,
-            "role": user.role,
-        }
-        if generated:
-            response_data["generated_password"] = password
-
-        return Response(
-            response_data,
             status=status.HTTP_201_CREATED,
         )
 
+    @action(detail=False, methods=["delete"])
+    def clear_all(self, request):
+        if not request.user.role == "admin":
+            return Response(
+                {"error": "Only admins can clear all beneficiaries"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        count = Beneficiary.objects.count()
+        Beneficiary.objects.all().delete()
+        return Response(
+            {"message": f"Deleted {count} beneficiaries"},
+            status=status.HTTP_200_OK,
+        )
 
-class ListUsersView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsAdmin,
-    ]
+    @action(detail=False, methods=["post"])
+    def import_guardians(self, request):
+        confirm = request.query_params.get(
+            "confirm", "false").lower() == "true"
+        rows = request.data
+        if not isinstance(rows, list):
+            return Response(
+                {"error": "Expected a list of guardian records"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        matched = 0
+        unmatched = 0
+        duplicates = 0
+        invalid = 0
+        preview_rows = []
+
+        for row in rows:
+            child_number = row.get("child_number", "").strip()
+            guardian_name = row.get("name", "").strip()
+            relationship = row.get("relationship", "").strip()
+
+            if not child_number or not guardian_name or not relationship:
+                invalid += 1
+                preview_rows.append({**row, "status": "invalid"})
+                continue
+
+            beneficiary = Beneficiary.objects.filter(
+                child_number=child_number).first()
+            if not beneficiary:
+                unmatched += 1
+                preview_rows.append(
+                    {**row, "status": "unmatched", "beneficiary_name": None})
+                continue
+
+            if Guardian.objects.filter(beneficiary=beneficiary, relationship=relationship).exists():
+                duplicates += 1
+                preview_rows.append({
+                    **row,
+                    "status": "duplicate",
+                    "beneficiary_name": beneficiary.last_name,
+                })
+                continue
+
+            matched += 1
+            preview_rows.append({
+                **row,
+                "status": "matched",
+                "beneficiary_name": beneficiary.last_name,
+            })
+
+            if confirm:
+                Guardian.objects.create(
+                    beneficiary=beneficiary,
+                    name=guardian_name,
+                    relationship=relationship,
+                    phone=row.get("phone", ""),
+                    email=row.get("email", ""),
+                    address=row.get("address", ""),
+                    notes=row.get("notes", ""),
+                    id_number=row.get("id_number", ""),
+                )
+
+        return Response({
+            "total_rows": len(rows),
+            "matched": matched,
+            "unmatched": unmatched,
+            "duplicates": duplicates,
+            "invalid": invalid,
+            "rows": preview_rows,
+        })
+
+    @action(detail=True, methods=["post"])
+    def notes(self, request, pk=None):
+        beneficiary = self.get_object()
+        text = request.data.get("text")
+        if not text:
+            return Response(
+                {"error": "Text is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        note = Note.objects.create(
+            beneficiary=beneficiary,
+            author=request.user.email,
+            text=text,
+        )
+        serializer = NoteSerializer(note)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    def documents(self, request, pk=None):
+        beneficiary = self.get_object()
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            return Response(
+                {"error": "File is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        doc = Document.objects.create(
+            beneficiary=beneficiary,
+            file=file_obj,
+            name=file_obj.name,
+            size=file_obj.size,
+            type=file_obj.content_type or "",
+        )
+        serializer = DocumentSerializer(doc)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["delete"], url_path="documents/(?P<doc_id>[^/.]+)")
+    def delete_document(self, request, pk=None, doc_id=None):
+        beneficiary = self.get_object()
+        try:
+            doc = beneficiary.documents.get(id=doc_id)
+        except Document.DoesNotExist:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        doc.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"])
+    def guardians(self, request, pk=None):
+        beneficiary = self.get_object()
+        guardians = beneficiary.guardians.all()
+        serializer = GuardianSerializer(guardians, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="guardians")
+    def add_guardian(self, request, pk=None):
+        beneficiary = self.get_object()
+        serializer = GuardianSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(beneficiary=beneficiary)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class EmployeeActivityView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        users = (
-            User.objects
-            .all()
-            .order_by("email")
-        )
-
-        serializer = UserSerializer(
-            users,
-            many=True,
-        )
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
+        user = request.user
+        if user.role == "admin":
+            employees = User.objects.filter(role="employee", is_active=True)
+            stats = []
+            for emp in employees:
+                count = SupportLog.objects.filter(logged_by=emp.email).values(
+                    "beneficiary_id").distinct().count()
+                stats.append({"email": emp.email, "beneficiary_count": count})
+            return Response({"employee_stats": stats})
+        else:
+            count = SupportLog.objects.filter(logged_by=user.email).values(
+                "beneficiary_id").distinct().count()
+            return Response({"employee_stats": [{"email": user.email, "beneficiary_count": count}]})
 
 
-class DeleteUserView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsAdmin,
-    ]
-
-    def delete(self, request, pk):
-        try:
-            user_obj = User.objects.get(
-                pk=pk
-            )
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "detail": "User not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if user_obj == request.user:
-            return Response(
-                {
-                    "detail": "You cannot delete your own account."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user_obj.delete()
-
-        return Response(
-            status=status.HTTP_204_NO_CONTENT
-        )
-
-
-class UpdateUserStatusView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsAdmin,
-    ]
-
-    def patch(self, request, pk):
-        try:
-            user_obj = User.objects.get(
-                pk=pk
-            )
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "detail": "User not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if user_obj == request.user:
-            return Response(
-                {
-                    "detail": "You cannot change your own status."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if "is_active" not in request.data:
-            return Response(
-                {
-                    "detail": "is_active field is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        is_active = request.data.get(
-            "is_active"
-        )
-
-        if isinstance(
-            is_active,
-            str,
-        ):
-            is_active = (
-                is_active.lower()
-                == "true"
-            )
-
-        user_obj.is_active = bool(
-            is_active
-        )
-
-        user_obj.save(
-            update_fields=[
-                "is_active"
-            ]
-        )
-
-        serializer = UserSerializer(
-            user_obj
-        )
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
-
-class UserSessionListView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsAdmin,
-    ]
+class DashboardView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        email = request.query_params.get(
-            "email",
-            "",
-        ).strip()
+        is_admin = request.user.role == "admin"
 
-        if not email:
-            return Response(
-                {
-                    "detail": "Email query parameter is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if is_admin:
+            beneficiary_queryset = Beneficiary.objects.all()
+            support_queryset = SupportLog.objects.select_related(
+                "beneficiary").all()
+        else:
+            employee_email = request.user.email
+            employee_logs = SupportLog.objects.filter(logged_by=employee_email)
+            beneficiary_ids = employee_logs.values_list(
+                "beneficiary_id", flat=True).distinct()
+            beneficiary_queryset = Beneficiary.objects.filter(
+                id__in=beneficiary_ids)
+            support_queryset = employee_logs
 
-        try:
-            user_obj = User.objects.get(
-                email__iexact=email
-            )
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "detail": "User not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        beneficiary_count = beneficiary_queryset.count()
+        total_benefits = support_queryset.count()
 
-        sessions = (
-            UserSession.objects
-            .filter(user=user_obj)
-            .select_related("user")
-            .order_by("-timestamp")
-        )
+        benefit_rows = support_queryset.values("type").annotate(
+            count=Count("id")).order_by("-count", "type")
+        benefit_types = []
+        for row in benefit_rows:
+            count = row["count"]
+            percentage = round((count / total_benefits) *
+                               100, 1) if total_benefits else 0
+            benefit_types.append(
+                {"type": row["type"] or "Other", "count": count, "percentage": percentage})
 
-        serializer = UserSessionSerializer(
-            sessions,
-            many=True,
-        )
+        if is_admin:
+            employee_users = User.objects.filter(
+                role="employee", is_active=True).order_by("email")
+            employee_stats = []
+            for emp in employee_users:
+                count = SupportLog.objects.filter(logged_by=emp.email).values(
+                    "beneficiary_id").distinct().count()
+                employee_stats.append(
+                    {"email": emp.email, "beneficiary_count": count})
+            employee_count = employee_users.count()
+        else:
+            count = support_queryset.values(
+                "beneficiary_id").distinct().count()
+            employee_stats = [
+                {"email": request.user.email, "beneficiary_count": count}]
+            employee_count = 1
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
-
-class CheckActiveStatusView(APIView):
-    permission_classes = [
-        IsAuthenticated
-    ]
-
-    def get(self, request):
-        return Response(
-            {
-                "is_active": request.user.is_active,
-                "email": request.user.email,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class ResetUserPasswordView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsAdmin,
-    ]
-
-    def post(self, request, pk):
-        try:
-            user_obj = User.objects.get(
-                pk=pk
-            )
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "detail": "User not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        alphabet = (
-            string.ascii_letters
-            + string.digits
-        )
-
-        new_password = "".join(
-            secrets.choice(alphabet)
-            for _ in range(12)
-        )
-
-        user_obj.set_password(
-            new_password
-        )
-
-        user_obj.save(
-            update_fields=[
-                "password"
-            ]
-        )
-
-        return Response(
-            {
-                "email": user_obj.email,
-                "new_password": new_password,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response({
+            "beneficiary_count": beneficiary_count,
+            "employee_count": employee_count,
+            "total_benefits": total_benefits,
+            "benefit_types": benefit_types,
+            "employee_stats": employee_stats,
+        })
