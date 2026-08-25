@@ -90,7 +90,7 @@ class BeneficiaryDetailSerializer(serializers.ModelSerializer):
     documents = DocumentSerializer(many=True, read_only=True)
     supportLog = SupportLogSerializer(
         source="support_logs", many=True, read_only=True)
-    guardians = GuardianSerializer(many=True, read_only=True)
+    guardians = serializers.SerializerMethodField()
 
     communityNumber = serializers.CharField(
         source="community_number", required=False, allow_blank=True, default="")
@@ -121,6 +121,12 @@ class BeneficiaryDetailSerializer(serializers.ModelSerializer):
             "narrativeDate", "photoDate", "age", "village", "createdAt", "updatedAt",
             "createdBy", "notes", "documents", "supportLog", "guardians"
         ]
+
+    def get_guardians(self, obj):
+        try:
+            return GuardianSerializer(obj.guardians.all(), many=True).data
+        except:
+            return []
 
     def create(self, validated_data):
         request = self.context.get("request")

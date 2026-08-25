@@ -1,4 +1,5 @@
 import re
+import logging
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Q
@@ -16,6 +17,7 @@ from .serializers import (
     GuardianSerializer
 )
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
@@ -75,7 +77,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(document_count=0)
         else:
             queryset = queryset.prefetch_related(
-                "notes", "documents", "support_logs", "guardians")
+                "notes", "documents", "support_logs")
         return queryset
 
     @action(detail=True, methods=["post"])
@@ -244,154 +246,224 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="import-guardians")
     def import_guardians(self, request):
-        data = request.data
-        if not isinstance(data, list):
-            return Response({"detail": "Expected a list of guardian records."}, status=status.HTTP_400_BAD_REQUEST)
-        if not data:
-            return Response({"total_rows": 0, "matched": 0, "unmatched": 0, "duplicates": 0, "invalid": 0, "rows": []}, status=status.HTTP_200_OK)
-        confirm = request.query_params.get(
-            "confirm", "false").lower() == "true"
-        child_numbers = []
-        for row in data:
-            if not isinstance(row, dict):
-                continue
-            cn = row.get("child_number") or row.get("childNumber") or row.get(
-                "Child Number") or row.get("Child_Number")
-            if cn:
-                child_numbers.append(str(cn).strip())
-        if not child_numbers:
-            return Response({"detail": "No valid child numbers found."}, status=status.HTTP_400_BAD_REQUEST)
-        beneficiaries = Beneficiary.objects.filter(
-            child_number__in=child_numbers)
-        child_to_beneficiary = {b.child_number: b for b in beneficiaries}
-        matched = 0
-        unmatched = 0
-        duplicates = 0
-        invalid = 0
-        rows_output = []
-        duplicate_set = set()
-        created = 0
-        updated = 0
+        try:
+            data = request.data
+            if not isinstance(data, list):
+                return Response({"detail": "Expected a list of guardian records."}, status=status.HTTP_400_BAD_REQUEST)
+            if not data:
+                return Response({"total_rows": 0, "matched": 0, "unmatched": 0, "duplicates": 0, "invalid": 0, "rows": []}, status=status.HTTP_200_OK)
 
-        if confirm:
-            with transaction.atomic():
-                existing_guardians_qs = Guardian.objects.filter(
-                    beneficiary__in=beneficiaries)
-                existing_guardians = {}
-                for g in existing_guardians_qs:
-                    key = (g.beneficiary_id, g.relationship)
-                    existing_guardians[key] = g
+            confirm = request.query_params.get(
+                "confirm", "false").lower() == "true"
+            child_numbers = []
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                cn = row.get("child_number") or row.get("childNumber") or row.get(
+                    "Child Number") or row.get("Child_Number")
+                if cn:
+                    child_numbers.append(str(cn).strip())
 
-        for idx, row in enumerate(data, start=1):
-            if not isinstance(row, dict):
-                invalid += 1
-                rows_output.append(
-                    {"row": idx, "status": "invalid", "errors": "Invalid row format"})
-                continue
-            cn = str(row.get("child_number") or row.get("childNumber") or row.get(
-                "Child Number") or row.get("Child_Number") or "").strip()
-            if not cn:
-                invalid += 1
-                rows_output.append(
-                    {"row": idx, "status": "invalid", "errors": "Missing child number"})
-                continue
-            beneficiary = child_to_beneficiary.get(cn)
-            if not beneficiary:
-                unmatched += 1
-                rows_output.append(
-                    {"row": idx, "child_number": cn, "status": "unmatched", "reason": "Beneficiary not found"})
-                continue
-            name = str(row.get("name") or row.get("guardian_name") or row.get(
-                "Guardian Name") or row.get("Parent's Name") or row.get("Parent Name") or "").strip()
-            relationship = str(row.get("relationship") or row.get(
-                "Relation") or row.get("Guardian Relation") or "").strip()
-            phone = str(row.get("phone") or row.get("contacts") or row.get(
-                "Contact") or row.get("Phone") or row.get("Telephone") or "").strip()
-            email = str(row.get("email") or "").strip()
-            address = str(row.get("address") or "").strip()
-            notes = str(row.get("notes") or "").strip()
-            id_number = str(row.get("id_number") or row.get(
-                "ID Number") or row.get("ID No") or "").strip()
+            if not child_numbers:
+                return Response({"detail": "No valid child numbers found."}, status=status.HTTP_400_BAD_REQUEST)
 
-            if not name:
-                invalid += 1
-                rows_output.append(
-                    {"row": idx, "child_number": cn, "status": "invalid", "errors": "Guardian name required"})
-                continue
-            rel_lower = relationship.lower()
-            if "mother" in rel_lower or "mom" in rel_lower:
-                relationship = "MOTHER"
-            elif "father" in rel_lower or "dad" in rel_lower:
-                relationship = "FATHER"
-            elif "guardian" in rel_lower:
-                relationship = "GUARDIAN"
-            else:
-                relationship = "OTHER"
+            beneficiaries = Beneficiary.objects.filter(
+                child_number__in=child_numbers)
+            child_to_beneficiary = {b.child_number: b for b in beneficiaries}
 
-            key = (beneficiary.id, relationship)
-            if key in duplicate_set:
-                duplicates += 1
-                rows_output.append({"row": idx, "child_number": cn, "status": "duplicate",
-                                   "reason": "Duplicate relationship for same beneficiary"})
-                continue
-            duplicate_set.add(key)
+            matched = 0
+            unmatched = 0
+            duplicates = 0
+            invalid = 0
+            rows_output = []
+            duplicate_set = set()
+            created = 0
+            updated = 0
 
             if confirm:
-                try:
-                    existing = existing_guardians.get(key)
-                    if existing:
-                        existing.name = name
-                        existing.phone = phone
-                        existing.email = email
-                        existing.address = address
-                        existing.notes = notes
-                        existing.id_number = id_number
-                        existing.save()
-                        updated += 1
+                with transaction.atomic():
+                    existing_guardians_qs = Guardian.objects.filter(
+                        beneficiary__in=beneficiaries)
+                    existing_guardians = {}
+                    for g in existing_guardians_qs:
+                        key = (g.beneficiary_id, g.relationship)
+                        existing_guardians[key] = g
+
+                    for idx, row in enumerate(data, start=1):
+                        if not isinstance(row, dict):
+                            invalid += 1
+                            rows_output.append(
+                                {"row": idx, "status": "invalid", "errors": "Invalid row format"})
+                            continue
+
+                        cn = str(row.get("child_number") or row.get("childNumber") or row.get(
+                            "Child Number") or row.get("Child_Number") or "").strip()
+                        if not cn:
+                            invalid += 1
+                            rows_output.append(
+                                {"row": idx, "status": "invalid", "errors": "Missing child number"})
+                            continue
+
+                        beneficiary = child_to_beneficiary.get(cn)
+                        if not beneficiary:
+                            unmatched += 1
+                            rows_output.append(
+                                {"row": idx, "child_number": cn, "status": "unmatched", "reason": "Beneficiary not found"})
+                            continue
+
+                        name = str(row.get("name") or row.get("guardian_name") or row.get(
+                            "Guardian Name") or row.get("Parent's Name") or row.get("Parent Name") or "").strip()
+                        relationship = str(row.get("relationship") or row.get(
+                            "Relation") or row.get("Guardian Relation") or "").strip()
+                        phone = str(row.get("phone") or row.get("contacts") or row.get(
+                            "Contact") or row.get("Phone") or row.get("Telephone") or "").strip()
+                        email = str(row.get("email") or "").strip()
+                        address = str(row.get("address") or "").strip()
+                        notes = str(row.get("notes") or "").strip()
+                        id_number = str(row.get("id_number") or row.get(
+                            "ID Number") or row.get("ID No") or "").strip()
+
+                        if not name:
+                            invalid += 1
+                            rows_output.append(
+                                {"row": idx, "child_number": cn, "status": "invalid", "errors": "Guardian name required"})
+                            continue
+
+                        rel_lower = relationship.lower()
+                        if "mother" in rel_lower or "mom" in rel_lower:
+                            relationship = "MOTHER"
+                        elif "father" in rel_lower or "dad" in rel_lower:
+                            relationship = "FATHER"
+                        elif "guardian" in rel_lower:
+                            relationship = "GUARDIAN"
+                        else:
+                            relationship = "OTHER"
+
+                        key = (beneficiary.id, relationship)
+                        if key in duplicate_set:
+                            duplicates += 1
+                            rows_output.append({"row": idx, "child_number": cn, "status": "duplicate",
+                                               "reason": "Duplicate relationship for same beneficiary"})
+                            continue
+                        duplicate_set.add(key)
+
+                        try:
+                            existing = existing_guardians.get(key)
+                            if existing:
+                                existing.name = name
+                                existing.phone = phone
+                                existing.email = email
+                                existing.address = address
+                                existing.notes = notes
+                                existing.id_number = id_number
+                                existing.save()
+                                updated += 1
+                            else:
+                                Guardian.objects.create(
+                                    beneficiary=beneficiary,
+                                    name=name,
+                                    relationship=relationship,
+                                    phone=phone,
+                                    email=email,
+                                    address=address,
+                                    notes=notes,
+                                    id_number=id_number
+                                )
+                                created += 1
+                            matched += 1
+                            rows_output.append({"row": idx, "child_number": cn, "status": "matched",
+                                               "beneficiary_name": beneficiary.last_name or "", "guardian_name": name, "relationship": relationship})
+                        except Exception as e:
+                            invalid += 1
+                            rows_output.append(
+                                {"row": idx, "child_number": cn, "status": "error", "errors": str(e)})
+
+                    return Response({
+                        "total_rows": len(data),
+                        "matched": matched,
+                        "unmatched": unmatched,
+                        "duplicates": duplicates,
+                        "invalid": invalid,
+                        "created": created,
+                        "updated": updated,
+                        "rows": rows_output
+                    }, status=status.HTTP_200_OK)
+
+            else:
+                for idx, row in enumerate(data, start=1):
+                    if not isinstance(row, dict):
+                        invalid += 1
+                        rows_output.append(
+                            {"row": idx, "status": "invalid", "errors": "Invalid row format"})
+                        continue
+
+                    cn = str(row.get("child_number") or row.get("childNumber") or row.get(
+                        "Child Number") or row.get("Child_Number") or "").strip()
+                    if not cn:
+                        invalid += 1
+                        rows_output.append(
+                            {"row": idx, "status": "invalid", "errors": "Missing child number"})
+                        continue
+
+                    beneficiary = child_to_beneficiary.get(cn)
+                    if not beneficiary:
+                        unmatched += 1
+                        rows_output.append(
+                            {"row": idx, "child_number": cn, "status": "unmatched", "reason": "Beneficiary not found"})
+                        continue
+
+                    name = str(row.get("name") or row.get("guardian_name") or row.get(
+                        "Guardian Name") or row.get("Parent's Name") or row.get("Parent Name") or "").strip()
+                    relationship = str(row.get("relationship") or row.get(
+                        "Relation") or row.get("Guardian Relation") or "").strip()
+                    phone = str(row.get("phone") or row.get("contacts") or row.get(
+                        "Contact") or row.get("Phone") or row.get("Telephone") or "").strip()
+                    email = str(row.get("email") or "").strip()
+                    address = str(row.get("address") or "").strip()
+                    notes = str(row.get("notes") or "").strip()
+                    id_number = str(row.get("id_number") or row.get(
+                        "ID Number") or row.get("ID No") or "").strip()
+
+                    if not name:
+                        invalid += 1
+                        rows_output.append(
+                            {"row": idx, "child_number": cn, "status": "invalid", "errors": "Guardian name required"})
+                        continue
+
+                    rel_lower = relationship.lower()
+                    if "mother" in rel_lower or "mom" in rel_lower:
+                        relationship = "MOTHER"
+                    elif "father" in rel_lower or "dad" in rel_lower:
+                        relationship = "FATHER"
+                    elif "guardian" in rel_lower:
+                        relationship = "GUARDIAN"
                     else:
-                        Guardian.objects.create(
-                            beneficiary=beneficiary,
-                            name=name,
-                            relationship=relationship,
-                            phone=phone,
-                            email=email,
-                            address=address,
-                            notes=notes,
-                            id_number=id_number
-                        )
-                        created += 1
+                        relationship = "OTHER"
+
+                    key = (beneficiary.id, relationship)
+                    if key in duplicate_set:
+                        duplicates += 1
+                        rows_output.append({"row": idx, "child_number": cn, "status": "duplicate",
+                                           "reason": "Duplicate relationship for same beneficiary"})
+                        continue
+                    duplicate_set.add(key)
+
                     matched += 1
                     rows_output.append({"row": idx, "child_number": cn, "status": "matched",
                                        "beneficiary_name": beneficiary.last_name or "", "guardian_name": name, "relationship": relationship})
-                except Exception as e:
-                    invalid += 1
-                    rows_output.append(
-                        {"row": idx, "child_number": cn, "status": "error", "errors": str(e)})
-            else:
-                matched += 1
-                rows_output.append({"row": idx, "child_number": cn, "status": "matched",
-                                   "beneficiary_name": beneficiary.last_name or "", "guardian_name": name, "relationship": relationship})
 
-        if confirm:
-            return Response({
-                "total_rows": len(data),
-                "matched": matched,
-                "unmatched": unmatched,
-                "duplicates": duplicates,
-                "invalid": invalid,
-                "created": created,
-                "updated": updated,
-                "rows": rows_output
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({
-                "total_rows": len(data),
-                "matched": matched,
-                "unmatched": unmatched,
-                "duplicates": duplicates,
-                "invalid": invalid,
-                "rows": rows_output
-            }, status=status.HTTP_200_OK)
+                return Response({
+                    "total_rows": len(data),
+                    "matched": matched,
+                    "unmatched": unmatched,
+                    "duplicates": duplicates,
+                    "invalid": invalid,
+                    "rows": rows_output
+                }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.exception("Guardian import failed")
+            return Response({"detail": f"Server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class SupportLogViewSet(viewsets.ModelViewSet):
