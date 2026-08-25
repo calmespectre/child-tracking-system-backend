@@ -21,6 +21,7 @@ DEBUG = False
 
 ALLOWED_HOSTS = [
     "child-tracking-system-backend.onrender.com",
+    "http://192.168.100.138:5173/",
     "localhost",
     "127.0.0.1",
 ]
