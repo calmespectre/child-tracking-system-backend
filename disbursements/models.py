@@ -46,6 +46,3 @@ class Bursary(models.Model):
             models.Index(fields=["status"]),
             models.Index(fields=["date"]),
         ]
-
-    def __str__(self):
-        return f"{self.beneficiary_name} - {self.school} - {self.amount}"

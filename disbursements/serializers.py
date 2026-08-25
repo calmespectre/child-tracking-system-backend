@@ -11,6 +11,4 @@ class BursarySerializer(serializers.ModelSerializer):
             "account_number", "branch", "amount", "date",
             "status", "notes", "created_by", "created_at", "updated_at",
         ]
-        read_only_fields = [
-            "id", "created_by", "created_at", "updated_at",
-        ]
+        read_only_fields = ["id", "created_by", "created_at", "updated_at"]
