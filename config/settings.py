@@ -21,7 +21,7 @@ DEBUG = False
 
 ALLOWED_HOSTS = [
     "child-tracking-system-backend.onrender.com",
-    "http://192.168.100.138:5173/",
+    "http://192.168.100.138:5173",
     "localhost",
     "127.0.0.1",
 ]
@@ -163,6 +163,7 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://child-tracking-system-pi.vercel.app",
+    "http://192.168.100.138:5173",
 ]
 
 CORS_ALLOW_CREDENTIALS = False
