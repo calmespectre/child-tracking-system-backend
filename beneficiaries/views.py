@@ -270,6 +270,9 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
         invalid = 0
         rows_output = []
         duplicate_set = set()
+        created = 0
+        updated = 0
+
         if confirm:
             with transaction.atomic():
                 existing_guardians_qs = Guardian.objects.filter(
@@ -278,6 +281,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 for g in existing_guardians_qs:
                     key = (g.beneficiary_id, g.relationship)
                     existing_guardians[key] = g
+
         for idx, row in enumerate(data, start=1):
             if not isinstance(row, dict):
                 invalid += 1
@@ -308,6 +312,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             notes = str(row.get("notes") or "").strip()
             id_number = str(row.get("id_number") or row.get(
                 "ID Number") or row.get("ID No") or "").strip()
+
             if not name:
                 invalid += 1
                 rows_output.append(
@@ -322,6 +327,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                 relationship = "GUARDIAN"
             else:
                 relationship = "OTHER"
+
             key = (beneficiary.id, relationship)
             if key in duplicate_set:
                 duplicates += 1
@@ -329,42 +335,63 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                                    "reason": "Duplicate relationship for same beneficiary"})
                 continue
             duplicate_set.add(key)
+
             if confirm:
-                existing = existing_guardians.get(key)
-                if existing:
-                    existing.name = name
-                    existing.phone = phone
-                    existing.email = email
-                    existing.address = address
-                    existing.notes = notes
-                    existing.id_number = id_number
-                    existing.save()
-                else:
-                    Guardian.objects.create(
-                        beneficiary=beneficiary,
-                        name=name,
-                        relationship=relationship,
-                        phone=phone,
-                        email=email,
-                        address=address,
-                        notes=notes,
-                        id_number=id_number
-                    )
-                matched += 1
-                rows_output.append({"row": idx, "child_number": cn, "status": "matched",
-                                   "beneficiary_name": beneficiary.last_name or "", "guardian_name": name, "relationship": relationship})
+                try:
+                    existing = existing_guardians.get(key)
+                    if existing:
+                        existing.name = name
+                        existing.phone = phone
+                        existing.email = email
+                        existing.address = address
+                        existing.notes = notes
+                        existing.id_number = id_number
+                        existing.save()
+                        updated += 1
+                    else:
+                        Guardian.objects.create(
+                            beneficiary=beneficiary,
+                            name=name,
+                            relationship=relationship,
+                            phone=phone,
+                            email=email,
+                            address=address,
+                            notes=notes,
+                            id_number=id_number
+                        )
+                        created += 1
+                    matched += 1
+                    rows_output.append({"row": idx, "child_number": cn, "status": "matched",
+                                       "beneficiary_name": beneficiary.last_name or "", "guardian_name": name, "relationship": relationship})
+                except Exception as e:
+                    invalid += 1
+                    rows_output.append(
+                        {"row": idx, "child_number": cn, "status": "error", "errors": str(e)})
             else:
                 matched += 1
                 rows_output.append({"row": idx, "child_number": cn, "status": "matched",
                                    "beneficiary_name": beneficiary.last_name or "", "guardian_name": name, "relationship": relationship})
-        return Response({
-            "total_rows": len(data),
-            "matched": matched,
-            "unmatched": unmatched,
-            "duplicates": duplicates,
-            "invalid": invalid,
-            "rows": rows_output
-        }, status=status.HTTP_200_OK)
+
+        if confirm:
+            return Response({
+                "total_rows": len(data),
+                "matched": matched,
+                "unmatched": unmatched,
+                "duplicates": duplicates,
+                "invalid": invalid,
+                "created": created,
+                "updated": updated,
+                "rows": rows_output
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                "total_rows": len(data),
+                "matched": matched,
+                "unmatched": unmatched,
+                "duplicates": duplicates,
+                "invalid": invalid,
+                "rows": rows_output
+            }, status=status.HTTP_200_OK)
 
 
 class SupportLogViewSet(viewsets.ModelViewSet):
