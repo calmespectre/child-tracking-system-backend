@@ -13,7 +13,6 @@ class Bursary(models.Model):
     zone = models.CharField(max_length=150, blank=True, default="")
     case_number = models.CharField(max_length=150, blank=True, default="")
     admission_number = models.CharField(max_length=150, blank=True, default="")
-    # keep this as a plain text field
     beneficiary_name = models.CharField(max_length=255)
     school = models.CharField(max_length=255, blank=True, default="")
     grade = models.CharField(max_length=100, blank=True, default="")
@@ -25,11 +24,6 @@ class Bursary(models.Model):
     status = models.CharField(
         max_length=30, choices=STATUS_CHOICES, default="Pending")
     notes = models.TextField(blank=True, default="")
-
-    # Remove the beneficiary FK completely
-    # beneficiary = models.ForeignKey(...)  <-- DELETE THIS LINE
-
-    # Keep created_by if you want to track who added it
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -42,7 +36,6 @@ class Bursary(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        # remove any indexes that referenced beneficiary
         indexes = [
             models.Index(fields=["zone"]),
             models.Index(fields=["case_number"]),

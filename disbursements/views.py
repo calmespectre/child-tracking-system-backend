@@ -1,4 +1,3 @@
-# views.py
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import action
@@ -56,19 +55,22 @@ class BursaryViewSet(ModelViewSet):
             try:
                 if not isinstance(row, dict):
                     raise ValueError("Each row must be an object.")
+                beneficiary_name = row.get(
+                    "beneficiary_name") or row.get("name") or ""
+                if not beneficiary_name:
+                    raise ValueError("Beneficiary name is required.")
                 Bursary.objects.create(
                     zone=row.get("zone", ""),
-                    case_number=row.get(
-                        "case_number", row.get("caseNumber", "")),
-                    admission_number=row.get(
-                        "admission_number", row.get("admissionNumber", "")),
-                    beneficiary_name=row.get(
-                        "beneficiary_name", row.get("name", "")),
+                    case_number=row.get("case_number") or row.get(
+                        "caseNumber") or "",
+                    admission_number=row.get("admission_number") or row.get(
+                        "admissionNumber") or "",
+                    beneficiary_name=beneficiary_name,
                     school=row.get("school", ""),
                     grade=row.get("grade", ""),
                     performance=row.get("performance", ""),
-                    account_number=row.get(
-                        "account_number", row.get("accountNumber", "")),
+                    account_number=row.get("account_number") or row.get(
+                        "accountNumber") or "",
                     branch=row.get("branch", ""),
                     amount=float(row.get("amount", 0)),
                     date=row.get("date") or None,
