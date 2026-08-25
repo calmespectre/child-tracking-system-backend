@@ -20,96 +20,28 @@ class Beneficiary(models.Model):
     ]
 
     community_number = models.CharField(
-        max_length=50,
-        blank=True,
-        default="",
-        db_index=True,
-    )
-
-    last_name = models.CharField(
-        max_length=150,
-        db_index=True,
-    )
-
-    child_number = models.CharField(
-        max_length=50,
-        unique=True,
-        db_index=True,
-    )
-
+        max_length=50, blank=True, default="", db_index=True)
+    last_name = models.CharField(max_length=150, db_index=True)
+    child_number = models.CharField(max_length=50, unique=True, db_index=True)
     participant_case_number = models.CharField(
-        max_length=50,
-        blank=True,
-        default="",
-    )
-
+        max_length=50, blank=True, default="")
     gender = models.CharField(
-        max_length=10,
-        choices=GENDER_CHOICES,
-        default="Female",
-    )
-
+        max_length=10, choices=GENDER_CHOICES, default="Female")
     short_name = models.CharField(
-        max_length=100,
-        blank=True,
-        default="",
-        db_index=True,
-    )
-
-    birthdate = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    age = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-    )
-
+        max_length=100, blank=True, default="", db_index=True)
+    birthdate = models.DateField(null=True, blank=True)
+    age = models.PositiveIntegerField(null=True, blank=True)
     village = models.CharField(
-        max_length=150,
-        blank=True,
-        default="",
-        db_index=True,
-    )
-
+        max_length=150, blank=True, default="", db_index=True)
     sponsorship_status = models.CharField(
-        max_length=30,
-        choices=STATUS_CHOICES,
-        default="Sponsored",
-        db_index=True,
-    )
-
-    enrollment_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    narrative_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    photo_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
-
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="created_beneficiaries",
-    )
+        max_length=30, choices=STATUS_CHOICES, default="Sponsored", db_index=True)
+    enrollment_date = models.DateField(null=True, blank=True)
+    narrative_date = models.DateField(null=True, blank=True)
+    photo_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name="created_beneficiaries")
 
     class Meta:
         ordering = ["-child_number"]
@@ -130,20 +62,9 @@ class Beneficiary(models.Model):
 
 class Note(models.Model):
     beneficiary = models.ForeignKey(
-        Beneficiary,
-        on_delete=models.CASCADE,
-        related_name="notes",
-    )
-
-    author = models.CharField(
-        max_length=100,
-        default="You",
-    )
-
-    date = models.DateField(
-        auto_now_add=True,
-    )
-
+        Beneficiary, on_delete=models.CASCADE, related_name="notes")
+    author = models.CharField(max_length=100, default="You")
+    date = models.DateField(auto_now_add=True)
     text = models.TextField()
 
     class Meta:
@@ -155,32 +76,12 @@ class Note(models.Model):
 
 class Document(models.Model):
     beneficiary = models.ForeignKey(
-        Beneficiary,
-        on_delete=models.CASCADE,
-        related_name="documents",
-    )
-
-    file = models.FileField(
-        upload_to="beneficiary_docs/",
-    )
-
-    name = models.CharField(
-        max_length=255,
-    )
-
-    size = models.PositiveIntegerField(
-        default=0,
-    )
-
-    type = models.CharField(
-        max_length=50,
-        blank=True,
-        default="",
-    )
-
-    uploaded_at = models.DateTimeField(
-        auto_now_add=True,
-    )
+        Beneficiary, on_delete=models.CASCADE, related_name="documents")
+    file = models.FileField(upload_to="beneficiary_docs/")
+    name = models.CharField(max_length=255)
+    size = models.PositiveIntegerField(default=0)
+    type = models.CharField(max_length=50, blank=True, default="")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
@@ -188,53 +89,16 @@ class Document(models.Model):
 
 class SupportLog(models.Model):
     beneficiary = models.ForeignKey(
-        Beneficiary,
-        on_delete=models.CASCADE,
-        related_name="support_logs",
-    )
-
-    type = models.CharField(
-        max_length=50,
-    )
-
-    amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=0,
-    )
-
+        Beneficiary, on_delete=models.CASCADE, related_name="support_logs")
+    type = models.CharField(max_length=50)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     date = models.DateField()
-
-    notes = models.TextField(
-        blank=True,
-        default="",
-    )
-
-    status = models.CharField(
-        max_length=20,
-        default="Pending",
-        db_index=True,
-    )
-
-    approved_by = models.CharField(
-        max_length=150,
-        blank=True,
-        null=True,
-    )
-
-    status_updated_at = models.DateTimeField(
-        null=True,
-        blank=True,
-    )
-
-    logged_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    logged_by = models.EmailField(
-        blank=True,
-        default="",
-    )
+    notes = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=20, default="Pending", db_index=True)
+    approved_by = models.CharField(max_length=150, blank=True, null=True)
+    status_updated_at = models.DateTimeField(null=True, blank=True)
+    logged_at = models.DateTimeField(auto_now_add=True)
+    logged_by = models.EmailField(blank=True, default="")
 
     class Meta:
         ordering = ["-logged_at"]
@@ -246,3 +110,31 @@ class SupportLog(models.Model):
 
     def __str__(self):
         return f"{self.type} - {self.beneficiary}"
+
+
+class Guardian(models.Model):
+    RELATIONSHIP_CHOICES = [
+        ("MOTHER", "Mother"),
+        ("FATHER", "Father"),
+        ("GUARDIAN", "Guardian"),
+        ("OTHER", "Other"),
+    ]
+
+    beneficiary = models.ForeignKey(
+        Beneficiary, on_delete=models.CASCADE, related_name="guardians")
+    name = models.CharField(max_length=255)
+    relationship = models.CharField(
+        max_length=20, choices=RELATIONSHIP_CHOICES)
+    phone = models.CharField(max_length=20, blank=True, default="")
+    email = models.EmailField(blank=True, default="")
+    address = models.TextField(blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    id_number = models.CharField(max_length=50, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["beneficiary", "relationship"]
+
+    def __str__(self):
+        return f"{self.name} ({self.relationship}) - {self.beneficiary}"

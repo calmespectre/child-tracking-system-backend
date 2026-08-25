@@ -1,182 +1,84 @@
 from rest_framework import serializers
-
-from .models import (
-    Beneficiary,
-    Note,
-    Document,
-    SupportLog,
-)
+from .models import Beneficiary, Note, Document, SupportLog, Guardian
 
 
 class NoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Note
-        fields = [
-            "id",
-            "author",
-            "date",
-            "text",
-        ]
+        fields = ["id", "author", "date", "text"]
 
 
 class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
-        fields = [
-            "id",
-            "file",
-            "name",
-            "size",
-            "type",
-            "uploaded_at",
-        ]
+        fields = ["id", "file", "name", "size", "type", "uploaded_at"]
 
 
 class SupportLogSerializer(serializers.ModelSerializer):
     beneficiaryName = serializers.SerializerMethodField()
-
     beneficiaryId = serializers.CharField(
-        source="beneficiary.child_number",
-        read_only=True,
-    )
+        source="beneficiary.child_number", read_only=True)
 
     class Meta:
         model = SupportLog
         fields = [
-            "id",
-            "beneficiary",
-            "beneficiaryName",
-            "beneficiaryId",
-            "type",
-            "amount",
-            "date",
-            "notes",
-            "status",
-            "approved_by",
-            "status_updated_at",
-            "logged_at",
-            "logged_by",
+            "id", "beneficiary", "beneficiaryName", "beneficiaryId",
+            "type", "amount", "date", "notes", "status",
+            "approved_by", "status_updated_at", "logged_at", "logged_by"
         ]
-        read_only_fields = [
-            "id",
-            "beneficiaryName",
-            "beneficiaryId",
-            "logged_at",
-            "logged_by",
-        ]
+        read_only_fields = ["id", "beneficiaryName",
+                            "beneficiaryId", "logged_at", "logged_by"]
 
     def get_beneficiaryName(self, obj):
         if not obj.beneficiary:
             return ""
-
-        short_name = str(
-            obj.beneficiary.short_name or ""
-        ).strip()
-
-        last_name = str(
-            obj.beneficiary.last_name or ""
-        ).strip()
-
+        short_name = obj.beneficiary.short_name or ""
+        last_name = obj.beneficiary.last_name or ""
         if short_name and last_name:
             if short_name.lower() == last_name.lower():
                 return short_name
-
             return f"{short_name} {last_name}".strip()
-
         return short_name or last_name
+
+
+class GuardianSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Guardian
+        fields = ["id", "beneficiary", "name", "relationship", "phone",
+                  "email", "address", "notes", "id_number", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class BeneficiaryListSerializer(serializers.ModelSerializer):
     communityNumber = serializers.CharField(
-        source="community_number",
-        read_only=True,
-    )
-
-    lastName = serializers.CharField(
-        source="last_name",
-        read_only=True,
-    )
-
-    childNumber = serializers.CharField(
-        source="child_number",
-        read_only=True,
-    )
-
+        source="community_number", read_only=True)
+    lastName = serializers.CharField(source="last_name", read_only=True)
+    childNumber = serializers.CharField(source="child_number", read_only=True)
     participantCaseNumber = serializers.CharField(
-        source="participant_case_number",
-        read_only=True,
-    )
-
-    shortName = serializers.CharField(
-        source="short_name",
-        read_only=True,
-    )
-
+        source="participant_case_number", read_only=True)
+    shortName = serializers.CharField(source="short_name", read_only=True)
     sponsorshipStatus = serializers.CharField(
-        source="sponsorship_status",
-        read_only=True,
-    )
-
+        source="sponsorship_status", read_only=True)
     enrollmentDate = serializers.DateField(
-        source="enrollment_date",
-        read_only=True,
-    )
-
+        source="enrollment_date", read_only=True)
     narrativeDate = serializers.DateField(
-        source="narrative_date",
-        read_only=True,
-    )
-
-    photoDate = serializers.DateField(
-        source="photo_date",
-        read_only=True,
-    )
-
-    createdAt = serializers.DateTimeField(
-        source="created_at",
-        read_only=True,
-    )
-
-    updatedAt = serializers.DateTimeField(
-        source="updated_at",
-        read_only=True,
-    )
-
+        source="narrative_date", read_only=True)
+    photoDate = serializers.DateField(source="photo_date", read_only=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     createdBy = serializers.PrimaryKeyRelatedField(
-        source="created_by",
-        read_only=True,
-    )
-
+        source="created_by", read_only=True)
     documentCount = serializers.IntegerField(
-        source="document_count",
-        read_only=True,
-        default=0,
-    )
-
+        source="document_count", read_only=True, default=0)
     hasDocuments = serializers.SerializerMethodField()
 
     class Meta:
         model = Beneficiary
         fields = [
-            "id",
-            "communityNumber",
-            "lastName",
-            "childNumber",
-            "participantCaseNumber",
-            "gender",
-            "shortName",
-            "birthdate",
-            "sponsorshipStatus",
-            "enrollmentDate",
-            "narrativeDate",
-            "photoDate",
-            "age",
-            "village",
-            "createdAt",
-            "updatedAt",
-            "createdBy",
-            "documentCount",
-            "hasDocuments",
+            "id", "communityNumber", "lastName", "childNumber", "participantCaseNumber",
+            "gender", "shortName", "birthdate", "sponsorshipStatus", "enrollmentDate",
+            "narrativeDate", "photoDate", "age", "village", "createdAt", "updatedAt",
+            "createdBy", "documentCount", "hasDocuments"
         ]
 
     def get_hasDocuments(self, obj):
@@ -184,133 +86,50 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
 
 
 class BeneficiaryDetailSerializer(serializers.ModelSerializer):
-    notes = NoteSerializer(
-        many=True,
-        read_only=True,
-    )
-
-    documents = DocumentSerializer(
-        many=True,
-        read_only=True,
-    )
-
+    notes = NoteSerializer(many=True, read_only=True)
+    documents = DocumentSerializer(many=True, read_only=True)
     supportLog = SupportLogSerializer(
-        source="support_logs",
-        many=True,
-        read_only=True,
-    )
+        source="support_logs", many=True, read_only=True)
+    guardians = GuardianSerializer(many=True, read_only=True)
 
     communityNumber = serializers.CharField(
-        source="community_number",
-        required=False,
-        allow_blank=True,
-        default="",
-    )
-
-    lastName = serializers.CharField(
-        source="last_name",
-    )
-
-    childNumber = serializers.CharField(
-        source="child_number",
-    )
-
+        source="community_number", required=False, allow_blank=True, default="")
+    lastName = serializers.CharField(source="last_name")
+    childNumber = serializers.CharField(source="child_number")
     participantCaseNumber = serializers.CharField(
-        source="participant_case_number",
-        required=False,
-        allow_blank=True,
-        default="",
-    )
-
+        source="participant_case_number", required=False, allow_blank=True, default="")
     shortName = serializers.CharField(
-        source="short_name",
-        required=False,
-        allow_blank=True,
-        default="",
-    )
-
+        source="short_name", required=False, allow_blank=True, default="")
     sponsorshipStatus = serializers.CharField(
-        source="sponsorship_status",
-        required=False,
-        default="Sponsored",
-    )
-
+        source="sponsorship_status", required=False, default="Sponsored")
     enrollmentDate = serializers.DateField(
-        source="enrollment_date",
-        required=False,
-        allow_null=True,
-    )
-
+        source="enrollment_date", required=False, allow_null=True)
     narrativeDate = serializers.DateField(
-        source="narrative_date",
-        required=False,
-        allow_null=True,
-    )
-
+        source="narrative_date", required=False, allow_null=True)
     photoDate = serializers.DateField(
-        source="photo_date",
-        required=False,
-        allow_null=True,
-    )
-
-    createdAt = serializers.DateTimeField(
-        source="created_at",
-        read_only=True,
-    )
-
-    updatedAt = serializers.DateTimeField(
-        source="updated_at",
-        read_only=True,
-    )
-
+        source="photo_date", required=False, allow_null=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     createdBy = serializers.PrimaryKeyRelatedField(
-        source="created_by",
-        read_only=True,
-    )
+        source="created_by", read_only=True)
 
     class Meta:
         model = Beneficiary
         fields = [
-            "id",
-            "communityNumber",
-            "lastName",
-            "childNumber",
-            "participantCaseNumber",
-            "gender",
-            "shortName",
-            "birthdate",
-            "sponsorshipStatus",
-            "enrollmentDate",
-            "narrativeDate",
-            "photoDate",
-            "age",
-            "village",
-            "createdAt",
-            "updatedAt",
-            "createdBy",
-            "notes",
-            "documents",
-            "supportLog",
+            "id", "communityNumber", "lastName", "childNumber", "participantCaseNumber",
+            "gender", "shortName", "birthdate", "sponsorshipStatus", "enrollmentDate",
+            "narrativeDate", "photoDate", "age", "village", "createdAt", "updatedAt",
+            "createdBy", "notes", "documents", "supportLog", "guardians"
         ]
 
     def create(self, validated_data):
         request = self.context.get("request")
-
         if request and request.user.is_authenticated:
             validated_data["created_by"] = request.user
+        return Beneficiary.objects.create(**validated_data)
 
-        return Beneficiary.objects.create(
-            **validated_data
-        )
-
-    def update(
-        self,
-        instance,
-        validated_data,
-    ):
+    def update(self, instance, validated_data):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-
         instance.save()
-
         return instance
