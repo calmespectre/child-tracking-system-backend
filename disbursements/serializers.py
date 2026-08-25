@@ -23,8 +23,8 @@ class BursarySerializer(serializers.ModelSerializer):
             "date",
             "status",
             "notes",
-            "beneficiary_id",
-            "beneficiary_child_number",
+            "beneficiary_id",              # now a method field
+            "beneficiary_child_number",    # now a method field
             "created_by",
             "created_at",
             "updated_at",
