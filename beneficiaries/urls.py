@@ -8,6 +8,4 @@ router.register(r'guardians', GuardianViewSet, basename='guardian')
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('beneficiaries/import-guardians/',
-         BeneficiaryViewSet.as_view({'post': 'import_guardians'}), name='import-guardians'),
 ]
