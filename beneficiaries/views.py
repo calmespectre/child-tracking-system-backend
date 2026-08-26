@@ -1,3 +1,4 @@
+from django.db import models
 from django.db.models import Count, Avg
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -185,14 +186,12 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
                     if beneficiary_data.get(key) is None:
                         del beneficiary_data[key]
 
-                serializer = BeneficiarySerializer(data=beneficiary_data)
-                if serializer.is_valid():
-                    serializer.save()
-                    created_count += 1
-                else:
-                    failed_count += 1
-                    failed_rows.append(
-                        {'row': idx, 'errors': serializer.errors})
+                if not beneficiary_data.get('last_name'):
+                    beneficiary_data['last_name'] = 'Unknown'
+
+                Beneficiary.objects.create(**beneficiary_data)
+                created_count += 1
+
             except Exception as e:
                 failed_count += 1
                 failed_rows.append({'row': idx, 'error': str(e)})
