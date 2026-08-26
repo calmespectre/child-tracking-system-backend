@@ -1,4 +1,3 @@
-from django.db import models
 from django.db.models import Count, Avg
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action

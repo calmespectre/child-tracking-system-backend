@@ -68,8 +68,7 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     createdBy = serializers.PrimaryKeyRelatedField(
         source="created_by", read_only=True)
-    documentCount = serializers.IntegerField(
-        source="document_count", read_only=True, default=0)
+    documentCount = serializers.SerializerMethodField()
     hasDocuments = serializers.SerializerMethodField()
 
     class Meta:
@@ -81,11 +80,14 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
             "createdBy", "documentCount", "hasDocuments"
         ]
 
+    def get_documentCount(self, obj):
+        return obj.documents.count()
+
     def get_hasDocuments(self, obj):
-        return getattr(obj, "document_count", 0) > 0
+        return obj.documents.exists()
 
 
-class BeneficiaryDetailSerializer(serializers.ModelSerializer):
+class BeneficiarySerializer(serializers.ModelSerializer):
     notes = NoteSerializer(many=True, read_only=True)
     documents = DocumentSerializer(many=True, read_only=True)
     supportLog = SupportLogSerializer(
