@@ -156,11 +156,36 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             try:
                 child_number = item.get('child_number')
                 if not child_number:
-                    raise ValueError('Child number is required')
+                    failed_count += 1
+                    failed_rows.append(
+                        {'row': idx, 'error': 'Missing child_number'})
+                    continue
+
                 if Beneficiary.objects.filter(child_number=child_number).exists():
                     skipped_count += 1
                     continue
-                serializer = BeneficiarySerializer(data=item)
+
+                beneficiary_data = {
+                    'community_number': item.get('community_number', ''),
+                    'last_name': item.get('last_name', ''),
+                    'child_number': child_number,
+                    'participant_case_number': item.get('participant_case_number', ''),
+                    'gender': item.get('gender', 'Female'),
+                    'short_name': item.get('short_name', ''),
+                    'birthdate': item.get('birthdate'),
+                    'sponsorship_status': item.get('sponsorship_status', 'Sponsored'),
+                    'enrollment_date': item.get('enrollment_date'),
+                    'narrative_date': item.get('narrative_date'),
+                    'photo_date': item.get('photo_date'),
+                    'age': item.get('age'),
+                    'village': item.get('village', ''),
+                }
+
+                for key in ['birthdate', 'enrollment_date', 'narrative_date', 'photo_date', 'age']:
+                    if beneficiary_data.get(key) is None:
+                        del beneficiary_data[key]
+
+                serializer = BeneficiarySerializer(data=beneficiary_data)
                 if serializer.is_valid():
                     serializer.save()
                     created_count += 1
@@ -177,7 +202,7 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             'skipped_count': skipped_count,
             'failed_count': failed_count,
             'failed': failed_rows
-        }, status=status.HTTP_201_CREATED if created_count > 0 else status.HTTP_400_BAD_REQUEST)
+        }, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='notes')
     def add_note(self, request, pk=None):
