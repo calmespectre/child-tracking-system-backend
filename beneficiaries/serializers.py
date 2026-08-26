@@ -1,65 +1,141 @@
 from rest_framework import serializers
-from .models import Beneficiary, Guardian, Document, Note
+from .models import Beneficiary, Note, Document, SupportLog, Guardian
 
 
-class GuardianSerializer(serializers.ModelSerializer):
+class NoteSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Guardian
-        fields = ['id', 'name', 'relationship', 'phone',
-                  'email', 'address', 'id_number', 'notes']
+        model = Note
+        fields = ["id", "author", "date", "text"]
 
 
 class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
-        fields = ['id', 'name', 'file', 'type', 'size', 'uploaded_at']
+        fields = ["id", "file", "name", "size", "type", "uploaded_at"]
 
 
-class NoteSerializer(serializers.ModelSerializer):
-    author_name = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Note
-        fields = ['id', 'author', 'author_name', 'text', 'date']
-
-    def get_author_name(self, obj):
-        if obj.author:
-            return obj.author.email
-        return "System"
-
-
-class BeneficiarySerializer(serializers.ModelSerializer):
-    guardians = GuardianSerializer(many=True, read_only=True)
-    documents = DocumentSerializer(many=True, read_only=True)
-    notes = NoteSerializer(many=True, read_only=True)
-    document_count = serializers.SerializerMethodField()
+class SupportLogSerializer(serializers.ModelSerializer):
+    beneficiaryName = serializers.SerializerMethodField()
+    beneficiaryId = serializers.CharField(
+        source="beneficiary.child_number", read_only=True)
 
     class Meta:
-        model = Beneficiary
+        model = SupportLog
         fields = [
-            'id', 'community_number', 'last_name', 'child_number',
-            'participant_case_number', 'gender', 'short_name', 'birthdate',
-            'sponsorship_status', 'enrollment_date', 'narrative_date', 'photo_date',
-            'age', 'village', 'created_at', 'updated_at', 'guardians', 'documents',
-            'notes', 'document_count'
+            "id", "beneficiary", "beneficiaryName", "beneficiaryId",
+            "type", "amount", "date", "notes", "status",
+            "approved_by", "status_updated_at", "logged_at", "logged_by"
         ]
+        read_only_fields = ["id", "beneficiaryName",
+                            "beneficiaryId", "logged_at", "logged_by"]
 
-    def get_document_count(self, obj):
-        return obj.documents.count()
+    def get_beneficiaryName(self, obj):
+        if not obj.beneficiary:
+            return ""
+        short_name = obj.beneficiary.short_name or ""
+        last_name = obj.beneficiary.last_name or ""
+        if short_name and last_name:
+            if short_name.lower() == last_name.lower():
+                return short_name
+            return f"{short_name} {last_name}".strip()
+        return short_name or last_name
+
+
+class GuardianSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Guardian
+        fields = ["id", "beneficiary", "name", "relationship", "phone",
+                  "email", "address", "notes", "id_number", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class BeneficiaryListSerializer(serializers.ModelSerializer):
-    document_count = serializers.SerializerMethodField()
-    has_documents = serializers.BooleanField(source='documents.exists')
+    communityNumber = serializers.CharField(
+        source="community_number", read_only=True)
+    lastName = serializers.CharField(source="last_name", read_only=True)
+    childNumber = serializers.CharField(source="child_number", read_only=True)
+    participantCaseNumber = serializers.CharField(
+        source="participant_case_number", read_only=True)
+    shortName = serializers.CharField(source="short_name", read_only=True)
+    sponsorshipStatus = serializers.CharField(
+        source="sponsorship_status", read_only=True)
+    enrollmentDate = serializers.DateField(
+        source="enrollment_date", read_only=True)
+    narrativeDate = serializers.DateField(
+        source="narrative_date", read_only=True)
+    photoDate = serializers.DateField(source="photo_date", read_only=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
+    createdBy = serializers.PrimaryKeyRelatedField(
+        source="created_by", read_only=True)
+    documentCount = serializers.IntegerField(
+        source="document_count", read_only=True, default=0)
+    hasDocuments = serializers.SerializerMethodField()
 
     class Meta:
         model = Beneficiary
         fields = [
-            'id', 'community_number', 'last_name', 'child_number',
-            'participant_case_number', 'gender', 'short_name', 'birthdate',
-            'sponsorship_status', 'enrollment_date', 'narrative_date', 'photo_date',
-            'age', 'village', 'document_count', 'has_documents'
+            "id", "communityNumber", "lastName", "childNumber", "participantCaseNumber",
+            "gender", "shortName", "birthdate", "sponsorshipStatus", "enrollmentDate",
+            "narrativeDate", "photoDate", "age", "village", "createdAt", "updatedAt",
+            "createdBy", "documentCount", "hasDocuments"
         ]
 
-    def get_document_count(self, obj):
-        return obj.documents.count()
+    def get_hasDocuments(self, obj):
+        return getattr(obj, "document_count", 0) > 0
+
+
+class BeneficiaryDetailSerializer(serializers.ModelSerializer):
+    notes = NoteSerializer(many=True, read_only=True)
+    documents = DocumentSerializer(many=True, read_only=True)
+    supportLog = SupportLogSerializer(
+        source="support_logs", many=True, read_only=True)
+    guardians = serializers.SerializerMethodField()
+
+    communityNumber = serializers.CharField(
+        source="community_number", required=False, allow_blank=True, default="")
+    lastName = serializers.CharField(source="last_name")
+    childNumber = serializers.CharField(source="child_number")
+    participantCaseNumber = serializers.CharField(
+        source="participant_case_number", required=False, allow_blank=True, default="")
+    shortName = serializers.CharField(
+        source="short_name", required=False, allow_blank=True, default="")
+    sponsorshipStatus = serializers.CharField(
+        source="sponsorship_status", required=False, default="Sponsored")
+    enrollmentDate = serializers.DateField(
+        source="enrollment_date", required=False, allow_null=True)
+    narrativeDate = serializers.DateField(
+        source="narrative_date", required=False, allow_null=True)
+    photoDate = serializers.DateField(
+        source="photo_date", required=False, allow_null=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
+    createdBy = serializers.PrimaryKeyRelatedField(
+        source="created_by", read_only=True)
+
+    class Meta:
+        model = Beneficiary
+        fields = [
+            "id", "communityNumber", "lastName", "childNumber", "participantCaseNumber",
+            "gender", "shortName", "birthdate", "sponsorshipStatus", "enrollmentDate",
+            "narrativeDate", "photoDate", "age", "village", "createdAt", "updatedAt",
+            "createdBy", "notes", "documents", "supportLog", "guardians"
+        ]
+
+    def get_guardians(self, obj):
+        try:
+            return GuardianSerializer(obj.guardians.all(), many=True).data
+        except:
+            return []
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            validated_data["created_by"] = request.user
+        return Beneficiary.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
