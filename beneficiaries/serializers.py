@@ -16,11 +16,16 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 
 class NoteSerializer(serializers.ModelSerializer):
-    author_name = serializers.CharField(source='author.email', read_only=True)
+    author_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Note
         fields = ['id', 'author', 'author_name', 'text', 'date']
+
+    def get_author_name(self, obj):
+        if obj.author:
+            return obj.author.email
+        return "System"
 
 
 class BeneficiarySerializer(serializers.ModelSerializer):

@@ -11,6 +11,7 @@ from .serializers import (
     BeneficiarySerializer, BeneficiaryListSerializer,
     GuardianSerializer, DocumentSerializer, NoteSerializer
 )
+import traceback
 
 
 class BeneficiaryPagination(PageNumberPagination):
@@ -31,6 +32,16 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'last_name',
                        'child_number', 'birthdate', 'enrollment_date']
     ordering = ['-created_at']
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            return super().retrieve(request, *args, **kwargs)
+        except Exception as e:
+            print(traceback.format_exc())
+            return Response(
+                {'detail': f'Error retrieving beneficiary: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def get_serializer_class(self):
         if self.action == 'list':
