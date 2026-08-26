@@ -252,6 +252,24 @@ class CreateUserView(APIView):
     def post(self, request):
         serializer = CreateUserSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        password = request.data.get("password", "")
+        if not password:
+            alphabet = string.ascii_letters + string.digits
+            generated_password = "".join(
+                secrets.choice(alphabet) for _ in range(12))
+            user = User.objects.create_user(
+                email=serializer.validated_data["email"],
+                role=serializer.validated_data["role"],
+                username=serializer.validated_data.get("username", ""),
+                password=generated_password
+            )
+            response_data = {
+                "id": user.id,
+                "email": user.email,
+                "role": user.role,
+                "generated_password": generated_password
+            }
+            return Response(response_data, status=status.HTTP_201_CREATED)
         user = serializer.save()
         return Response(
             {"id": user.id, "email": user.email, "role": user.role},
@@ -350,8 +368,12 @@ class ResetUserPasswordView(APIView):
             user_obj = User.objects.get(pk=pk)
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-        alphabet = string.ascii_letters + string.digits
-        new_password = "".join(secrets.choice(alphabet) for _ in range(12))
+
+        new_password = request.data.get("password", "")
+        if not new_password:
+            alphabet = string.ascii_letters + string.digits
+            new_password = "".join(secrets.choice(alphabet) for _ in range(12))
+
         user_obj.set_password(new_password)
         user_obj.save(update_fields=["password"])
         return Response(
