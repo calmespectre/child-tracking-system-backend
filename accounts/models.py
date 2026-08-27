@@ -145,7 +145,10 @@ class ChatMessage(models.Model):
         User, on_delete=models.CASCADE, related_name='sent_messages')
     recipient = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='received_messages')
-    encrypted_message = models.TextField()
+    message = models.TextField(blank=True, default="")
+    attachment = models.FileField(
+        upload_to='chat_attachments/', null=True, blank=True)
+    attachment_type = models.CharField(max_length=50, blank=True, default="")
     timestamp = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
 

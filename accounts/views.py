@@ -540,19 +540,26 @@ class ChatMessageListView(APIView):
 
     def post(self, request):
         recipient_email = request.data.get('recipient')
-        encrypted_message = request.data.get('encrypted_message')
-        if not recipient_email or not encrypted_message:
-            return Response({"detail": "recipient and encrypted_message are required."}, status=status.HTTP_400_BAD_REQUEST)
+        message_text = request.data.get('message', '').strip()
+        attachment = request.FILES.get('attachment')
+        if not recipient_email:
+            return Response({"detail": "recipient is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not message_text and not attachment:
+            return Response({"detail": "message or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             recipient = User.objects.get(email__iexact=recipient_email)
         except User.DoesNotExist:
             return Response({"detail": "Recipient not found."}, status=status.HTTP_404_NOT_FOUND)
         if recipient == request.user:
             return Response({"detail": "Cannot send message to yourself."}, status=status.HTTP_400_BAD_REQUEST)
-        message = ChatMessage.objects.create(
+        chat_message = ChatMessage(
             sender=request.user,
             recipient=recipient,
-            encrypted_message=encrypted_message
+            message=message_text
         )
-        serializer = ChatMessageSerializer(message)
+        if attachment:
+            chat_message.attachment = attachment
+            chat_message.attachment_type = attachment.content_type or 'application/octet-stream'
+        chat_message.save()
+        serializer = ChatMessageSerializer(chat_message)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
