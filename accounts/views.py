@@ -468,6 +468,7 @@ class UpdateProfileView(APIView):
             user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        # Return updated user data
         return Response(serializer.data)
 
 
