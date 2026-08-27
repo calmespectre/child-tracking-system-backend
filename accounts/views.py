@@ -55,8 +55,33 @@ def log_activity(user, action, request, details=None):
 
 
 def send_brevo_email(to_emails, subject, text_content, html_content=None):
-    # ... same as before, unchanged ...
-    pass  # Keep existing implementation
+    api_key = os.environ.get("BREVO_API_KEY")
+    sender_email = os.environ.get("BREVO_SENDER_EMAIL")
+    sender_name = os.environ.get(
+        "BREVO_SENDER_NAME", "MKCDP Child Tracking System")
+    if not api_key:
+        raise ValueError("BREVO_API_KEY is not configured.")
+    if not sender_email:
+        raise ValueError("BREVO_SENDER_EMAIL is not configured.")
+    if isinstance(to_emails, str):
+        to_emails = [to_emails]
+    payload = {
+        "sender": {"name": sender_name, "email": sender_email},
+        "to": [{"email": email} for email in to_emails],
+        "subject": subject,
+        "textContent": text_content,
+    }
+    if html_content:
+        payload["htmlContent"] = html_content
+    response = requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        headers={"accept": "application/json", "api-key": api_key,
+                 "content-type": "application/json"},
+        json=payload,
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def get_tokens_for_user(user):
@@ -85,7 +110,60 @@ def create_login_response(user, request):
     user.save(update_fields=["last_ip", "last_activity"])
     tokens = get_tokens_for_user(user)
     log_activity(user, 'LOGIN', request)
-    # ... email notifications (existing code) ...
+    login_time = now.strftime("%d-%m-%Y %H:%M:%S")
+    device_info = ua or "Unknown device"
+    try:
+        send_brevo_email(
+            to_emails=user.email,
+            subject="MKCDP Login Notification",
+            text_content=(
+                f"Dear {user.get_full_name() or user.username},\n\n"
+                "A login to your MKCDP Child-Tracking-System account was detected.\n\n"
+                f"Email: {user.email}\nTime: {login_time}\nDevice: {device_info}\nIP Address: {ip}\n\n"
+                "If this was not you, please contact the administrator immediately."
+            ),
+            html_content=f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
+                    <h2>MKCDP Login Notification</h2>
+                    <p>Dear {user.get_full_name() or user.username},</p>
+                    <p>A login to your MKCDP Child-Tracking-System account was detected.</p>
+                    <p><strong>Email:</strong> {user.email}</p>
+                    <p><strong>Time:</strong> {login_time}</p>
+                    <p><strong>Device:</strong> {device_info}</p>
+                    <p><strong>IP Address:</strong> {ip}</p>
+                    <p>If this was not you, please contact the administrator immediately.</p>
+                </div>
+            """,
+        )
+    except Exception as exc:
+        print("USER LOGIN EMAIL ERROR:", repr(exc))
+    admin_emails = list(User.objects.filter(
+        role="admin", is_active=True).values_list("email", flat=True))
+    if admin_emails:
+        try:
+            send_brevo_email(
+                to_emails=admin_emails,
+                subject="MKCDP - New User Login",
+                text_content=(
+                    "A user has logged into the MKCDP Child-Tracking-System.\n\n"
+                    f"User: {user.email}\nRole: {user.role}\nTime: {login_time}\nDevice: {device_info}\nIP Address: {ip}\n\n"
+                    "This is an automated notification."
+                ),
+                html_content=f"""
+                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
+                        <h2>MKCDP - New User Login</h2>
+                        <p>A user has logged into the MKCDP Child-Tracking-System.</p>
+                        <p><strong>User:</strong> {user.email}</p>
+                        <p><strong>Role:</strong> {user.role}</p>
+                        <p><strong>Time:</strong> {login_time}</p>
+                        <p><strong>Device:</strong> {device_info}</p>
+                        <p><strong>IP Address:</strong> {ip}</p>
+                        <p>This is an automated notification.</p>
+                    </div>
+                """,
+            )
+        except Exception as exc:
+            print("ADMIN LOGIN EMAIL ERROR:", repr(exc))
     return {**tokens, "user": {"name": user.get_full_name() or user.username, "email": user.email, "role": user.role}}
 
 
@@ -93,16 +171,86 @@ class RequestOTPView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        # ... same as before ...
-        pass
+        serializer = RequestOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        password = serializer.validated_data.get("password", "")
+        if not password:
+            return Response({"detail": "Password is required."}, status=status.HTTP_400_BAD_REQUEST)
+        user = authenticate(request, email=email, password=password)
+        if not user:
+            return Response({"detail": "Invalid email or password."}, status=status.HTTP_400_BAD_REQUEST)
+        if not user.is_active:
+            return Response(
+                {"detail": "Your account has been deactivated. Please contact the administrator."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if otp_recently_verified(user):
+            response_data = create_login_response(user, request)
+            response_data["requires_otp"] = False
+            response_data["detail"] = "Login successful."
+            return Response(response_data, status=status.HTTP_200_OK)
+        OTP.objects.filter(user=user, is_used=False).update(is_used=True)
+        otp, code = OTP.create_for_user(user)
+        try:
+            result = send_brevo_email(
+                to_emails=email,
+                subject="Your MKCDP Child Tracking System login code",
+                text_content=f"Here is your one-time login code: {code}. It expires in 10 minutes.",
+                html_content=f"""
+                    <div style="font-family:Arial,sans-serif;max-width:500px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
+                        <h2>MKCDP Child Tracking System</h2>
+                        <p>Your one-time login code is:</p>
+                        <div style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:20px;margin:20px 0;background:#f5f5f5;border-radius:10px;">
+                            {code}
+                        </div>
+                        <p>This code expires in 10 minutes.</p>
+                        <p>If you did not request this code, you can safely ignore this email.</p>
+                    </div>
+                """,
+            )
+            print("BREVO OTP RESPONSE:", result)
+        except Exception as exc:
+            print("BREVO OTP ERROR:", repr(exc))
+            otp.delete()
+            return Response(
+                {"detail": "The verification email could not be sent. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"requires_otp": True, "detail": "OTP sent to email."}, status=status.HTTP_200_OK)
 
 
 class VerifyOTPView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        # ... same as before, but after successful login, we log activity inside create_login_response
-        pass
+        serializer = VerifyOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        code = serializer.validated_data["code"]
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response({"detail": "Invalid email or code."}, status=status.HTTP_400_BAD_REQUEST)
+        if not user.is_active:
+            return Response(
+                {"detail": "Your account has been deactivated. Please contact the administrator."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        otp = user.otps.filter(is_used=False).order_by("-created_at").first()
+        if not otp:
+            return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+        if not otp.is_valid():
+            return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+        if not check_password(code, otp.code_hash):
+            return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+        otp.is_used = True
+        otp.save(update_fields=["is_used"])
+        user.last_password_auth = timezone.now()
+        user.save(update_fields=["last_password_auth"])
+        response_data = create_login_response(user, request)
+        response_data["requires_otp"] = False
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class LogoutView(APIView):
@@ -116,7 +264,6 @@ class LogoutView(APIView):
         request.user.last_activity = None
         request.user.save(update_fields=["last_activity"])
         log_activity(request.user, 'LOGOUT', request)
-        # Blacklist the refresh token if present
         try:
             refresh_token = request.data.get("refresh")
             if refresh_token:
@@ -144,7 +291,6 @@ class CreateUserView(APIView):
                 username=serializer.validated_data.get("username", ""),
                 password=generated_password
             )
-            # Save initial password in history
             UserPasswordHistory.objects.create(
                 user=user, password_hash=make_password(generated_password))
             log_activity(request.user, 'CREATE_USER', request, {
@@ -250,7 +396,6 @@ class ResetUserPasswordView(APIView):
             alphabet = string.ascii_letters + string.digits
             new_password = "".join(secrets.choice(alphabet) for _ in range(12))
 
-        # Check password history (last 5 passwords)
         recent_hashes = UserPasswordHistory.objects.filter(
             user=user_obj)[:PASSWORD_HISTORY_COUNT]
         for entry in recent_hashes:
@@ -261,25 +406,20 @@ class ResetUserPasswordView(APIView):
 
         user_obj.set_password(new_password)
         user_obj.save(update_fields=["password"])
-        # Save new password hash to history
         UserPasswordHistory.objects.create(
             user=user_obj, password_hash=make_password(new_password))
 
-        # Log activity
         log_activity(request.user, 'RESET_PASSWORD', request,
                      {"target_user": user_obj.email})
 
-        # Optionally logout all devices
         logout_all = request.data.get("logout_all_devices", False)
         if logout_all:
-            # Blacklist all outstanding refresh tokens for this user
             outstanding = OutstandingToken.objects.filter(user=user_obj)
             for token in outstanding:
                 try:
                     BlacklistedToken.objects.get_or_create(token=token)
                 except Exception:
                     pass
-            # Also clear last activity to force re-login
             user_obj.last_activity = None
             user_obj.save(update_fields=["last_activity"])
 
@@ -304,7 +444,6 @@ class ActivityLogListView(APIView):
                 user=user_obj).order_by("-timestamp")
         else:
             logs = ActivityLog.objects.all().order_by("-timestamp")
-        # Limit to last 500 for performance
         logs = logs[:500]
         serializer = ActivityLogSerializer(logs, many=True)
         return Response(serializer.data)
