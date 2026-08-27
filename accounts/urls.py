@@ -10,6 +10,7 @@ from .views import (
     UserSessionListView,
     CheckActiveStatusView,
     ResetUserPasswordView,
+    ActivityLogListView,
 )
 
 urlpatterns = [
@@ -25,4 +26,5 @@ urlpatterns = [
     path("check-status/", CheckActiveStatusView.as_view(), name="check-status"),
     path("users/<int:pk>/reset-password/",
          ResetUserPasswordView.as_view(), name="reset-user-password"),
+    path("activity-logs/", ActivityLogListView.as_view(), name="activity-logs"),
 ]

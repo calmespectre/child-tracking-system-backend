@@ -87,3 +87,44 @@ class UserSession(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.action} at {self.timestamp}"
+
+
+class UserPasswordHistory(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="password_history")
+    password_hash = models.CharField(max_length=128)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class ActivityLog(models.Model):
+    ACTION_CHOICES = [
+        ('LOGIN', 'Login'),
+        ('LOGOUT', 'Logout'),
+        ('CREATE_USER', 'Create User'),
+        ('DELETE_USER', 'Delete User'),
+        ('UPDATE_USER_STATUS', 'Update User Status'),
+        ('RESET_PASSWORD', 'Reset Password'),
+        ('PASSWORD_CHANGE', 'Password Change'),
+        ('ADD_BENEFICIARY', 'Add Beneficiary'),
+        ('EDIT_BENEFICIARY', 'Edit Beneficiary'),
+        ('DELETE_BENEFICIARY', 'Delete Beneficiary'),
+        ('ADD_DISBURSEMENT', 'Add Disbursement'),
+        ('EDIT_DISBURSEMENT', 'Edit Disbursement'),
+        ('DELETE_DISBURSEMENT', 'Delete Disbursement'),
+        ('BULK_IMPORT_BENEFICIARIES', 'Bulk Import Beneficiaries'),
+        ('BULK_IMPORT_DISBURSEMENTS', 'Bulk Import Disbursements'),
+        ('IMPORT_GUARDIANS', 'Import Guardians'),
+    ]
+    user = models.ForeignKey(User, on_delete=models.SET_NULL,
+                             null=True, blank=True, related_name="activity_logs")
+    action = models.CharField(max_length=50, choices=ACTION_CHOICES)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True, default="")
+    details = models.JSONField(default=dict, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-timestamp"]

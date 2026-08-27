@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, UserSession
+from .models import User, UserSession, ActivityLog
 
 
 class RequestOTPSerializer(serializers.Serializer):
@@ -58,3 +58,14 @@ class UserSessionSerializer(serializers.ModelSerializer):
                   "ip_address", "user_agent", "timestamp"]
         read_only_fields = ["id", "user", "user_email",
                             "action", "ip_address", "user_agent", "timestamp"]
+
+
+class ActivityLogSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+
+    class Meta:
+        model = ActivityLog
+        fields = ["id", "user", "user_email", "action",
+                  "ip_address", "user_agent", "details", "timestamp"]
+        read_only_fields = ["id", "user", "user_email", "action",
+                            "ip_address", "user_agent", "details", "timestamp"]
