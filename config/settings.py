@@ -21,7 +21,7 @@ DEBUG = False
 
 ALLOWED_HOSTS = [
     "child-tracking-system-backend.onrender.com",
-    "http://192.168.100.138:5173",
+    "192.168.100.138",
     "localhost",
     "127.0.0.1",
 ]
@@ -29,24 +29,22 @@ ALLOWED_HOSTS = [
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
-    'rest_framework_simplejwt.token_blacklist',
+    "rest_framework_simplejwt.token_blacklist",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
     "django_filters",
     "rest_framework",
     "rest_framework_simplejwt",
     "corsheaders",
-
     "accounts",
     "beneficiaries",
     "disbursements",
 ]
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -138,33 +136,21 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
-
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-
     "UPDATE_LAST_LOGIN": True,
-
     "ALGORITHM": "HS256",
-
     "SIGNING_KEY": SECRET_KEY,
-
     "AUTH_HEADER_TYPES": ("Bearer",),
-
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
-
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
-
     "TOKEN_TYPE_CLAIM": "token_type",
-
     "JTI_CLAIM": "jti",
-
     "SLIDING_TOKEN_REFRESH_EXP_CLAIM": "refresh_exp",
     "SLIDING_TOKEN_LIFETIME": timedelta(hours=12),
     "SLIDING_TOKEN_REFRESH_LIFETIME": timedelta(days=1),
 }
-
-CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
 
