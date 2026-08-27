@@ -71,13 +71,20 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
     documentCount = serializers.SerializerMethodField()
     hasDocuments = serializers.SerializerMethodField()
 
+    guardian_name = serializers.SerializerMethodField()
+    guardian_id_number = serializers.SerializerMethodField()
+    guardian_phone = serializers.SerializerMethodField()
+    guardian_email = serializers.SerializerMethodField()
+    guardian_relationship = serializers.SerializerMethodField()
+
     class Meta:
         model = Beneficiary
         fields = [
             "id", "communityNumber", "lastName", "childNumber", "participantCaseNumber",
             "gender", "shortName", "birthdate", "sponsorshipStatus", "enrollmentDate",
             "narrativeDate", "photoDate", "age", "village", "createdAt", "updatedAt",
-            "createdBy", "documentCount", "hasDocuments"
+            "createdBy", "documentCount", "hasDocuments",
+            "guardian_name", "guardian_id_number", "guardian_phone", "guardian_email", "guardian_relationship"
         ]
 
     def get_documentCount(self, obj):
@@ -85,6 +92,26 @@ class BeneficiaryListSerializer(serializers.ModelSerializer):
 
     def get_hasDocuments(self, obj):
         return obj.documents.exists()
+
+    def get_guardian_name(self, obj):
+        first = obj.guardians.first()
+        return first.name if first else ""
+
+    def get_guardian_id_number(self, obj):
+        first = obj.guardians.first()
+        return first.id_number if first else ""
+
+    def get_guardian_phone(self, obj):
+        first = obj.guardians.first()
+        return first.phone if first else ""
+
+    def get_guardian_email(self, obj):
+        first = obj.guardians.first()
+        return first.email if first else ""
+
+    def get_guardian_relationship(self, obj):
+        first = obj.guardians.first()
+        return first.relationship if first else ""
 
 
 class BeneficiarySerializer(serializers.ModelSerializer):
