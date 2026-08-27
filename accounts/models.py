@@ -31,6 +31,8 @@ class User(AbstractUser):
     role = models.CharField(
         max_length=20, choices=Role.choices, default=Role.EMPLOYEE)
     email = models.EmailField(unique=True)
+    profile_picture = models.ImageField(
+        upload_to='profile_pics/', null=True, blank=True)
     last_password_auth = models.DateTimeField(null=True, blank=True)
     last_activity = models.DateTimeField(null=True, blank=True)
     last_ip = models.GenericIPAddressField(null=True, blank=True)
@@ -128,3 +130,24 @@ class ActivityLog(models.Model):
 
     class Meta:
         ordering = ["-timestamp"]
+
+
+class PublicKey(models.Model):
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='public_key')
+    key = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ChatMessage(models.Model):
+    sender = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='sent_messages')
+    recipient = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='received_messages')
+    encrypted_message = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['timestamp']

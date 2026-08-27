@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, UserSession, ActivityLog
+from .models import User, UserSession, ActivityLog, PublicKey, ChatMessage
 
 
 class RequestOTPSerializer(serializers.Serializer):
@@ -49,6 +49,13 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "email", "role", "is_active"]
 
 
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "email", "username", "role", "profile_picture"]
+        read_only_fields = ["id", "email", "role"]
+
+
 class UserSessionSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source="user.email", read_only=True)
 
@@ -69,3 +76,23 @@ class ActivityLogSerializer(serializers.ModelSerializer):
                   "ip_address", "user_agent", "details", "timestamp"]
         read_only_fields = ["id", "user", "user_email", "action",
                             "ip_address", "user_agent", "details", "timestamp"]
+
+
+class PublicKeySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PublicKey
+        fields = ["id", "user", "key", "created_at", "updated_at"]
+        read_only_fields = ["id", "user", "created_at", "updated_at"]
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    sender_email = serializers.EmailField(
+        source="sender.email", read_only=True)
+    recipient_email = serializers.EmailField(
+        source="recipient.email", read_only=True)
+
+    class Meta:
+        model = ChatMessage
+        fields = ["id", "sender", "sender_email", "recipient",
+                  "recipient_email", "encrypted_message", "timestamp", "is_read"]
+        read_only_fields = ["id", "sender", "timestamp", "is_read"]

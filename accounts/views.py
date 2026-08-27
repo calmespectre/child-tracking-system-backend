@@ -2,6 +2,7 @@ import os
 import secrets
 import string
 import requests
+from django.db import IntegrityError
 from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.hashers import check_password, make_password
 from django.utils import timezone
@@ -11,14 +12,17 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-from .models import OTP, UserSession, UserPasswordHistory, ActivityLog
+from .models import OTP, UserSession, UserPasswordHistory, ActivityLog, PublicKey, ChatMessage
 from .serializers import (
     RequestOTPSerializer,
     VerifyOTPSerializer,
     CreateUserSerializer,
     UserSerializer,
+    UserProfileSerializer,
     UserSessionSerializer,
     ActivityLogSerializer,
+    PublicKeySerializer,
+    ChatMessageSerializer,
 )
 from .permissions import IsAdmin
 
@@ -164,7 +168,13 @@ def create_login_response(user, request):
             )
         except Exception as exc:
             print("ADMIN LOGIN EMAIL ERROR:", repr(exc))
-    return {**tokens, "user": {"name": user.get_full_name() or user.username, "email": user.email, "role": user.role}}
+    profile_picture_url = user.profile_picture.url if user.profile_picture else None
+    return {**tokens, "user": {
+        "name": user.get_full_name() or user.username,
+        "email": user.email,
+        "role": user.role,
+        "profile_picture": profile_picture_url,
+    }}
 
 
 class RequestOTPView(APIView):
@@ -447,3 +457,102 @@ class ActivityLogListView(APIView):
         logs = logs[:500]
         serializer = ActivityLogSerializer(logs, many=True)
         return Response(serializer.data)
+
+
+class UpdateProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        user = request.user
+        serializer = UserProfileSerializer(
+            user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class PublicKeyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, email=None):
+        if email:
+            try:
+                user = User.objects.get(email__iexact=email)
+            except User.DoesNotExist:
+                return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            try:
+                pubkey = PublicKey.objects.get(user=user)
+                serializer = PublicKeySerializer(pubkey)
+                return Response(serializer.data)
+            except PublicKey.DoesNotExist:
+                return Response({"detail": "Public key not found."}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            keys = PublicKey.objects.all()
+            serializer = PublicKeySerializer(keys, many=True)
+            return Response(serializer.data)
+
+    def post(self, request):
+        key = request.data.get('key')
+        if not key:
+            return Response({"detail": "Key is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            pubkey, created = PublicKey.objects.update_or_create(
+                user=request.user,
+                defaults={'key': key}
+            )
+            serializer = PublicKeySerializer(pubkey)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except IntegrityError:
+            return Response({"detail": "Error saving key."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ChatUserListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        users = User.objects.exclude(id=request.user.id).only(
+            'id', 'email', 'username', 'profile_picture')
+        serializer = UserProfileSerializer(users, many=True)
+        return Response(serializer.data)
+
+
+class ChatMessageListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        recipient_email = request.query_params.get('recipient')
+        if not recipient_email:
+            return Response({"detail": "recipient query parameter required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            recipient = User.objects.get(email__iexact=recipient_email)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        messages = ChatMessage.objects.filter(
+            sender=request.user, recipient=recipient
+        ) | ChatMessage.objects.filter(
+            sender=recipient, recipient=request.user
+        )
+        messages = messages.order_by('timestamp')
+        serializer = ChatMessageSerializer(messages, many=True)
+        ChatMessage.objects.filter(
+            sender=recipient, recipient=request.user, is_read=False).update(is_read=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        recipient_email = request.data.get('recipient')
+        encrypted_message = request.data.get('encrypted_message')
+        if not recipient_email or not encrypted_message:
+            return Response({"detail": "recipient and encrypted_message are required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            recipient = User.objects.get(email__iexact=recipient_email)
+        except User.DoesNotExist:
+            return Response({"detail": "Recipient not found."}, status=status.HTTP_404_NOT_FOUND)
+        if recipient == request.user:
+            return Response({"detail": "Cannot send message to yourself."}, status=status.HTTP_400_BAD_REQUEST)
+        message = ChatMessage.objects.create(
+            sender=request.user,
+            recipient=recipient,
+            encrypted_message=encrypted_message
+        )
+        serializer = ChatMessageSerializer(message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

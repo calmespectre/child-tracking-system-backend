@@ -11,6 +11,10 @@ from .views import (
     CheckActiveStatusView,
     ResetUserPasswordView,
     ActivityLogListView,
+    UpdateProfileView,
+    PublicKeyView,
+    ChatUserListView,
+    ChatMessageListView,
 )
 
 urlpatterns = [
@@ -27,4 +31,10 @@ urlpatterns = [
     path("users/<int:pk>/reset-password/",
          ResetUserPasswordView.as_view(), name="reset-user-password"),
     path("activity-logs/", ActivityLogListView.as_view(), name="activity-logs"),
+    path("profile/", UpdateProfileView.as_view(), name="update-profile"),
+    path("public-key/", PublicKeyView.as_view(), name="public-key-list"),
+    path("public-key/<str:email>/",
+         PublicKeyView.as_view(), name="public-key-detail"),
+    path("chat/users/", ChatUserListView.as_view(), name="chat-users"),
+    path("chat/messages/", ChatMessageListView.as_view(), name="chat-messages"),
 ]
