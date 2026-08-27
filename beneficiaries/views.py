@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Beneficiary, Guardian, Document, Note
 from .serializers import (
@@ -262,8 +263,11 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'], url_path='dashboard')
-    def dashboard(self, request):
+
+class DashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
         total = Beneficiary.objects.count()
         active = Beneficiary.objects.filter(
             sponsorship_status='Sponsored').count()
@@ -313,6 +317,28 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             'employee_count': employees.count(),
             'average_age': avg_age,
             'total_amount': 0,
+        })
+
+
+class EmployeeActivityView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        email = request.query_params.get('email')
+        if not email:
+            return Response({'detail': 'Email parameter required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from accounts.models import User
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # For now, return a simple response; implement actual activity logic if needed
+        return Response({
+            'email': email,
+            'beneficiary_count': Beneficiary.objects.filter(created_by=user).count(),
+            'activities': []
         })
 
 
