@@ -16,10 +16,8 @@ disbursement_import = DisbursementViewSet.as_view({
 })
 
 urlpatterns = [
-    path('disbursements/<str:program>/',
-         disbursement_list, name='disbursement-list'),
-    path('disbursements/<str:program>/<int:pk>/',
-         disbursement_detail, name='disbursement-detail'),
-    path('disbursements/<str:program>/import/',
-         disbursement_import, name='disbursement-import'),
+    path('<str:program>/', disbursement_list, name='disbursement-list'),
+    path('<str:program>/<int:pk>/', disbursement_detail,
+         name='disbursement-detail'),
+    path('<str:program>/import/', disbursement_import, name='disbursement-import'),
 ]
