@@ -156,8 +156,10 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://localhost:5174",
     "https://child-tracking-system-pi.vercel.app",
     "http://192.168.100.138:5173",
+    "http://192.168.100.138:5174",
 ]
 
 CORS_ALLOW_METHODS = [
