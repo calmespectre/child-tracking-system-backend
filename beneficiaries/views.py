@@ -1,3 +1,4 @@
+# views.py
 from django.db.models import Count, Avg
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -58,6 +59,19 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
             queryset = queryset.annotate(
                 doc_count=Count('documents')).filter(doc_count=0)
         return queryset
+
+    @action(detail=True, methods=['get'], url_path='siblings')
+    def siblings(self, request, pk=None):
+        beneficiary = self.get_object()
+        guardian_ids = beneficiary.guardians.values_list('id', flat=True)
+        if not guardian_ids:
+            return Response([], status=status.HTTP_200_OK)
+        sibling_beneficiaries = Beneficiary.objects.filter(
+            guardians__id__in=guardian_ids
+        ).exclude(id=beneficiary.id).distinct()
+        serializer = BeneficiaryListSerializer(
+            sibling_beneficiaries, many=True)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['post'], url_path='import-guardians')
     def import_guardians(self, request):
@@ -334,7 +348,6 @@ class EmployeeActivityView(APIView):
         except User.DoesNotExist:
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        # For now, return a simple response; implement actual activity logic if needed
         return Response({
             'email': email,
             'beneficiary_count': Beneficiary.objects.filter(created_by=user).count(),
