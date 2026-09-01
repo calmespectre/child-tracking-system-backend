@@ -1,4 +1,5 @@
 # views.py
+from django.contrib.auth import get_user_model
 from django.db.models import Count, Avg
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -7,12 +8,14 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Beneficiary, Guardian, Document, Note
+from .models import Beneficiary, Guardian, Document, Note, SupportLog
 from .serializers import (
     BeneficiarySerializer, BeneficiaryListSerializer,
     GuardianSerializer, DocumentSerializer, NoteSerializer
 )
 import traceback
+
+User = get_user_model()
 
 
 class BeneficiaryPagination(PageNumberPagination):
@@ -282,56 +285,137 @@ class DashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        total = Beneficiary.objects.count()
-        active = Beneficiary.objects.filter(
-            sponsorship_status='Sponsored').count()
-        gender_breakdown = {
-            'female': Beneficiary.objects.filter(gender='Female').count(),
-            'male': Beneficiary.objects.filter(gender='Male').count(),
-        }
+        is_admin = getattr(request.user, "role", "") == "admin"
+
+        if is_admin:
+            beneficiary_queryset = Beneficiary.objects.all()
+            support_queryset = SupportLog.objects.select_related(
+                "beneficiary"
+            ).all()
+        else:
+            employee_email = request.user.email
+
+            employee_logs = SupportLog.objects.filter(
+                logged_by=employee_email
+            )
+
+            beneficiary_ids = employee_logs.values_list(
+                "beneficiary_id",
+                flat=True,
+            ).distinct()
+
+            beneficiary_queryset = Beneficiary.objects.filter(
+                id__in=beneficiary_ids
+            )
+
+            support_queryset = employee_logs
+
+        beneficiary_count = beneficiary_queryset.count()
+        total_benefits = support_queryset.count()
+
+        benefit_rows = (
+            support_queryset
+            .values("type")
+            .annotate(count=Count("id"))
+            .order_by("-count", "type")
+        )
 
         benefit_types = []
-        total_benefits = 0
-        try:
-            from disbursements.models import Bursary
-            bursary_count = Bursary.objects.count()
-            if bursary_count > 0:
-                benefit_types.append(
-                    {'type': 'Bursaries', 'count': bursary_count, 'percentage': 0})
-                total_benefits += bursary_count
-        except ImportError:
-            pass
+        for row in benefit_rows:
+            count = row["count"]
+            percentage = (
+                round((count / total_benefits) * 100, 1)
+                if total_benefits
+                else 0
+            )
+            benefit_types.append(
+                {
+                    "type": row["type"] or "Other",
+                    "count": count,
+                    "percentage": percentage,
+                }
+            )
 
-        from accounts.models import User
-        employees = User.objects.filter(role='employee')
-        employee_stats = []
-        for emp in employees:
-            count = Beneficiary.objects.filter(created_by=emp).count()
-            if count > 0:
-                employee_stats.append({
-                    'email': emp.email,
-                    'beneficiary_count': count
-                })
+        # Additional fields needed by the frontend
+        gender_breakdown = {
+            "female": beneficiary_queryset.filter(gender="Female").count(),
+            "male": beneficiary_queryset.filter(gender="Male").count(),
+        }
 
-        avg_age = Beneficiary.objects.exclude(
-            age__isnull=True).aggregate(Avg('age'))['age__avg']
+        active_beneficiaries = beneficiary_queryset.filter(
+            sponsorship_status="Sponsored"
+        ).count()
+        inactive_beneficiaries = beneficiary_count - active_beneficiaries
 
-        if total > 0 and benefit_types:
-            for b in benefit_types:
-                b['percentage'] = round(
-                    (b['count'] / total_benefits) * 100, 1) if total_benefits else 0
+        sponsored_beneficiaries = active_beneficiaries
+        pre_sponsored_beneficiaries = beneficiary_queryset.filter(
+            sponsorship_status="Pre-Sponsored"
+        ).count()
+        enrolled_beneficiaries = beneficiary_queryset.filter(
+            sponsorship_status="Enrolled"
+        ).count()
+        reserved_beneficiaries = beneficiary_queryset.filter(
+            sponsorship_status="Reserved"
+        ).count()
 
-        return Response({
-            'beneficiary_count': total,
-            'active_beneficiaries': active,
-            'gender_breakdown': gender_breakdown,
-            'benefit_types': benefit_types,
-            'total_benefits': total_benefits,
-            'employee_stats': employee_stats,
-            'employee_count': employees.count(),
-            'average_age': avg_age,
-            'total_amount': 0,
-        })
+        average_age = beneficiary_queryset.exclude(
+            age__isnull=True
+        ).aggregate(Avg("age"))["age__avg"]
+
+        if is_admin:
+            employee_users = User.objects.filter(
+                role="employee",
+                is_active=True,
+            ).order_by("email")
+
+            employee_stats = []
+            for employee in employee_users:
+                count = (
+                    SupportLog.objects
+                    .filter(logged_by=employee.email)
+                    .values("beneficiary_id")
+                    .distinct()
+                    .count()
+                )
+                employee_stats.append(
+                    {
+                        "email": employee.email,
+                        "beneficiary_count": count,
+                    }
+                )
+            employee_count = employee_users.count()
+        else:
+            count = (
+                support_queryset
+                .values("beneficiary_id")
+                .distinct()
+                .count()
+            )
+            employee_stats = [
+                {
+                    "email": request.user.email,
+                    "beneficiary_count": count,
+                }
+            ]
+            employee_count = 1
+
+        return Response(
+            {
+                "beneficiary_count": beneficiary_count,
+                "employee_count": employee_count,
+                "total_benefits": total_benefits,
+                "benefit_types": benefit_types,
+                "employee_stats": employee_stats,
+                "gender_breakdown": gender_breakdown,
+                "active_beneficiaries": active_beneficiaries,
+                "inactive_beneficiaries": inactive_beneficiaries,
+                "sponsored_beneficiaries": sponsored_beneficiaries,
+                "pre_sponsored_beneficiaries": pre_sponsored_beneficiaries,
+                "enrolled_beneficiaries": enrolled_beneficiaries,
+                "reserved_beneficiaries": reserved_beneficiaries,
+                "average_age": average_age,
+            }
+        )
 
 
 class EmployeeActivityView(APIView):

@@ -1,4 +1,3 @@
-# dashboard_views.py
 from django.contrib.auth import get_user_model
 from django.db.models import Count
 from rest_framework.views import APIView
@@ -23,16 +22,20 @@ class DashboardView(APIView):
             ).all()
         else:
             employee_email = request.user.email
+
             employee_logs = SupportLog.objects.filter(
                 logged_by=employee_email
             )
+
             beneficiary_ids = employee_logs.values_list(
                 "beneficiary_id",
                 flat=True,
             ).distinct()
+
             beneficiary_queryset = Beneficiary.objects.filter(
                 id__in=beneficiary_ids
             )
+
             support_queryset = employee_logs
 
         beneficiary_count = beneficiary_queryset.count()
@@ -46,13 +49,16 @@ class DashboardView(APIView):
         )
 
         benefit_types = []
+
         for row in benefit_rows:
             count = row["count"]
+
             percentage = (
                 round((count / total_benefits) * 100, 1)
                 if total_benefits
                 else 0
             )
+
             benefit_types.append(
                 {
                     "type": row["type"] or "Other",
@@ -61,16 +67,6 @@ class DashboardView(APIView):
                 }
             )
 
-        # Status breakdown for beneficiaries
-        status_choices = Beneficiary.STATUS_CHOICES
-        status_breakdown = {}
-        for status_code, status_label in status_choices:
-            count = beneficiary_queryset.filter(
-                sponsorship_status=status_code
-            ).count()
-            if count > 0:
-                status_breakdown[status_code] = count
-
         if is_admin:
             employee_users = User.objects.filter(
                 role="employee",
@@ -78,6 +74,7 @@ class DashboardView(APIView):
             ).order_by("email")
 
             employee_stats = []
+
             for employee in employee_users:
                 count = (
                     SupportLog.objects
@@ -86,6 +83,7 @@ class DashboardView(APIView):
                     .distinct()
                     .count()
                 )
+
                 employee_stats.append(
                     {
                         "email": employee.email,
@@ -102,12 +100,14 @@ class DashboardView(APIView):
                 .distinct()
                 .count()
             )
+
             employee_stats = [
                 {
                     "email": request.user.email,
                     "beneficiary_count": count,
                 }
             ]
+
             employee_count = 1
 
         return Response(
@@ -117,6 +117,5 @@ class DashboardView(APIView):
                 "total_benefits": total_benefits,
                 "benefit_types": benefit_types,
                 "employee_stats": employee_stats,
-                "status_breakdown": status_breakdown,
             }
         )
