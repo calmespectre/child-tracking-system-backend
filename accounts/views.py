@@ -133,7 +133,7 @@ def create_login_response(user, request):
                     <p>A login to your MKCDP Child-Tracking-System account was detected.</p>
                     <p><strong>Email:</strong> {user.email}</p>
                     <p><strong>Time:</strong> {login_time}</p>
-                    <p><strong>Device:</strong> {device_info}</p>
+                    # <p><strong>Device:</strong> {device_info}</p>
                     <p><strong>IP Address:</strong> {ip}</p>
                     <p>If this was not you, please contact the administrator immediately.</p>
                 </div>
@@ -160,7 +160,7 @@ def create_login_response(user, request):
                         <p><strong>User:</strong> {user.email}</p>
                         <p><strong>Role:</strong> {user.role}</p>
                         <p><strong>Time:</strong> {login_time}</p>
-                        <p><strong>Device:</strong> {device_info}</p>
+                        # <p><strong>Device:</strong> {device_info}</p>
                         <p><strong>IP Address:</strong> {ip}</p>
                         <p>This is an automated notification.</p>
                     </div>
