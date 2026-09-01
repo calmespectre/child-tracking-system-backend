@@ -8,6 +8,7 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework.pagination import PageNumberPagination
 from .models import Disbursement
 from .serializers import DisbursementSerializer
+from accounts.permissions import IsStaffOrSupervisor
 
 
 class DisbursementPagination(PageNumberPagination):
@@ -28,6 +29,11 @@ class DisbursementViewSet(ModelViewSet):
         "amount", "date", "status"
     ]
     ordering = ["-created_at"]
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'import_bursaries']:
+            return [IsStaffOrSupervisor()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         program = self.kwargs.get('program')

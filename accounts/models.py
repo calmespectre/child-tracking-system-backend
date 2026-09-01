@@ -19,17 +19,18 @@ class CustomUserManager(UserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
-        extra_fields.setdefault("role", "admin")
+        extra_fields.setdefault("role", "supervisor")
         return self.create_user(email, password, **extra_fields)
 
 
 class User(AbstractUser):
     class Role(models.TextChoices):
-        ADMIN = "admin", "Admin"
-        EMPLOYEE = "employee", "Employee"
+        CEO = "ceo", "CEO"
+        SUPERVISOR = "supervisor", "Supervisor"
+        STAFF = "staff", "Staff"
 
     role = models.CharField(
-        max_length=20, choices=Role.choices, default=Role.EMPLOYEE)
+        max_length=20, choices=Role.choices, default=Role.STAFF)
     email = models.EmailField(unique=True)
     profile_picture = models.ImageField(
         upload_to='profile_pics/', null=True, blank=True)

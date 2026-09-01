@@ -24,7 +24,7 @@ from .serializers import (
     PublicKeySerializer,
     ChatMessageSerializer,
 )
-from .permissions import IsAdmin
+from .permissions import IsSupervisorOrCEO, IsStaffOrSupervisor, IsSupervisor, IsCEO
 
 User = get_user_model()
 OTP_INTERVAL_HOURS = 12
@@ -133,7 +133,6 @@ def create_login_response(user, request):
                     <p>A login to your MKCDP Child-Tracking-System account was detected.</p>
                     <p><strong>Email:</strong> {user.email}</p>
                     <p><strong>Time:</strong> {login_time}</p>
-                    # <p><strong>Device:</strong> {device_info}</p>
                     <p><strong>IP Address:</strong> {ip}</p>
                     <p>If this was not you, please contact the administrator immediately.</p>
                 </div>
@@ -142,7 +141,7 @@ def create_login_response(user, request):
     except Exception as exc:
         print("USER LOGIN EMAIL ERROR:", repr(exc))
     admin_emails = list(User.objects.filter(
-        role="admin", is_active=True).values_list("email", flat=True))
+        role="supervisor", is_active=True).values_list("email", flat=True))
     if admin_emails:
         try:
             send_brevo_email(
@@ -160,7 +159,6 @@ def create_login_response(user, request):
                         <p><strong>User:</strong> {user.email}</p>
                         <p><strong>Role:</strong> {user.role}</p>
                         <p><strong>Time:</strong> {login_time}</p>
-                        # <p><strong>Device:</strong> {device_info}</p>
                         <p><strong>IP Address:</strong> {ip}</p>
                         <p>This is an automated notification.</p>
                     </div>
@@ -285,11 +283,22 @@ class LogoutView(APIView):
 
 
 class CreateUserView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
 
     def post(self, request):
         serializer = CreateUserSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        role = serializer.validated_data.get("role", "staff")
+        if request.user.role == "supervisor" and role != "staff":
+            return Response(
+                {"detail": "Supervisors can only create Staff accounts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if role == "ceo":
+            return Response(
+                {"detail": "CEO accounts cannot be created via this endpoint."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         password = request.data.get("password", "")
         if not password:
             alphabet = string.ascii_letters + string.digits
@@ -297,7 +306,7 @@ class CreateUserView(APIView):
                 secrets.choice(alphabet) for _ in range(12))
             user = User.objects.create_user(
                 email=serializer.validated_data["email"],
-                role=serializer.validated_data["role"],
+                role=role,
                 username=serializer.validated_data.get("username", ""),
                 password=generated_password
             )
@@ -320,7 +329,7 @@ class CreateUserView(APIView):
 
 
 class ListUsersView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
 
     def get(self, request):
         users = User.objects.all().order_by("email")
@@ -329,7 +338,7 @@ class ListUsersView(APIView):
 
 
 class DeleteUserView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
 
     def delete(self, request, pk):
         try:
@@ -338,6 +347,11 @@ class DeleteUserView(APIView):
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         if user_obj == request.user:
             return Response({"detail": "You cannot delete your own account."}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user.role == "supervisor" and user_obj.role != "staff":
+            return Response(
+                {"detail": "Supervisors can only delete Staff accounts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         email = user_obj.email
         user_obj.delete()
         log_activity(request.user, 'DELETE_USER',
@@ -346,7 +360,7 @@ class DeleteUserView(APIView):
 
 
 class UpdateUserStatusView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
 
     def patch(self, request, pk):
         try:
@@ -355,6 +369,11 @@ class UpdateUserStatusView(APIView):
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         if user_obj == request.user:
             return Response({"detail": "You cannot change your own status."}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user.role == "supervisor" and user_obj.role != "staff":
+            return Response(
+                {"detail": "Supervisors can only update Staff accounts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         if "is_active" not in request.data:
             return Response({"detail": "is_active field is required."}, status=status.HTTP_400_BAD_REQUEST)
         is_active = request.data.get("is_active")
@@ -369,7 +388,7 @@ class UpdateUserStatusView(APIView):
 
 
 class UserSessionListView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
 
     def get(self, request):
         email = request.query_params.get("email", "").strip()
@@ -393,19 +412,22 @@ class CheckActiveStatusView(APIView):
 
 
 class ResetUserPasswordView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
 
     def post(self, request, pk):
         try:
             user_obj = User.objects.get(pk=pk)
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-
+        if request.user.role == "supervisor" and user_obj.role != "staff":
+            return Response(
+                {"detail": "Supervisors can only reset passwords for Staff accounts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         new_password = request.data.get("password", "")
         if not new_password:
             alphabet = string.ascii_letters + string.digits
             new_password = "".join(secrets.choice(alphabet) for _ in range(12))
-
         recent_hashes = UserPasswordHistory.objects.filter(
             user=user_obj)[:PASSWORD_HISTORY_COUNT]
         for entry in recent_hashes:
@@ -413,15 +435,12 @@ class ResetUserPasswordView(APIView):
                 return Response({
                     "detail": f"You cannot reuse your last {PASSWORD_HISTORY_COUNT} passwords."
                 }, status=status.HTTP_400_BAD_REQUEST)
-
         user_obj.set_password(new_password)
         user_obj.save(update_fields=["password"])
         UserPasswordHistory.objects.create(
             user=user_obj, password_hash=make_password(new_password))
-
         log_activity(request.user, 'RESET_PASSWORD', request,
                      {"target_user": user_obj.email})
-
         logout_all = request.data.get("logout_all_devices", False)
         if logout_all:
             outstanding = OutstandingToken.objects.filter(user=user_obj)
@@ -432,7 +451,6 @@ class ResetUserPasswordView(APIView):
                     pass
             user_obj.last_activity = None
             user_obj.save(update_fields=["last_activity"])
-
         return Response({
             "email": user_obj.email,
             "new_password": new_password,
@@ -441,7 +459,7 @@ class ResetUserPasswordView(APIView):
 
 
 class ActivityLogListView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
 
     def get(self, request):
         email = request.query_params.get("email")
@@ -468,7 +486,6 @@ class UpdateProfileView(APIView):
             user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        # Return updated user data
         return Response(serializer.data)
 
 
@@ -527,7 +544,6 @@ class ChatMessageListView(APIView):
                 {'detail': 'recipient query parameter required.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         try:
             recipient = User.objects.get(email__iexact=recipient_email)
         except User.DoesNotExist:
@@ -535,7 +551,6 @@ class ChatMessageListView(APIView):
                 {'detail': 'User not found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
-
         messages = ChatMessage.objects.filter(
             sender=request.user,
             recipient=recipient
@@ -551,19 +566,16 @@ class ChatMessageListView(APIView):
         recipient_email = request.data.get('recipient', '').strip()
         message_text = request.data.get('message', '').strip()
         attachment = request.FILES.get('attachment')
-
         if not recipient_email:
             return Response(
                 {'detail': 'recipient is required.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         if not message_text and not attachment:
             return Response(
                 {'detail': 'message or attachment is required.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         try:
             recipient = User.objects.get(email__iexact=recipient_email)
         except User.DoesNotExist:
@@ -571,23 +583,19 @@ class ChatMessageListView(APIView):
                 {'detail': 'Recipient not found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
-
         if recipient == request.user:
             return Response(
                 {'detail': 'Cannot send message to yourself.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         chat_message = ChatMessage(
             sender=request.user,
             recipient=recipient,
             message=message_text
         )
-
         if attachment:
             chat_message.attachment = attachment
             chat_message.attachment_type = attachment.content_type or 'application/octet-stream'
-
         chat_message.save()
         serializer = ChatMessageSerializer(chat_message)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -603,7 +611,6 @@ class ChatMarkReadView(APIView):
                 {'detail': 'recipient is required.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         try:
             sender = User.objects.get(email__iexact=recipient_email)
         except User.DoesNotExist:
@@ -611,11 +618,9 @@ class ChatMarkReadView(APIView):
                 {'detail': 'User not found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
-
         updated = ChatMessage.objects.filter(
             sender=sender,
             recipient=request.user,
             is_read=False
         ).update(is_read=True)
-
         return Response({'marked_read': updated}, status=status.HTTP_200_OK)

@@ -1,4 +1,3 @@
-# views.py
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Avg
 from rest_framework import viewsets, status, filters
@@ -13,6 +12,7 @@ from .serializers import (
     BeneficiarySerializer, BeneficiaryListSerializer,
     GuardianSerializer, DocumentSerializer, NoteSerializer
 )
+from accounts.permissions import IsStaffOrSupervisor, IsSupervisor
 import traceback
 
 User = get_user_model()
@@ -36,6 +36,15 @@ class BeneficiaryViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'last_name',
                        'child_number', 'birthdate', 'enrollment_date']
     ordering = ['-created_at']
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy',
+                           'bulk_create', 'import_guardians', 'add_note',
+                           'upload_document', 'delete_document', 'create_guardian']:
+            return [IsStaffOrSupervisor()]
+        elif self.action == 'clear_all':
+            return [IsSupervisor()]
+        return [IsAuthenticated()]
 
     def retrieve(self, request, *args, **kwargs):
         try:
@@ -285,7 +294,7 @@ class DashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        is_admin = getattr(request.user, "role", "") == "admin"
+        is_admin = request.user.role in ["supervisor", "ceo"]
 
         if is_admin:
             beneficiary_queryset = Beneficiary.objects.all()
@@ -336,7 +345,6 @@ class DashboardView(APIView):
                 }
             )
 
-        # Additional fields needed by the frontend
         gender_breakdown = {
             "female": beneficiary_queryset.filter(gender="Female").count(),
             "male": beneficiary_queryset.filter(gender="Male").count(),
@@ -364,7 +372,7 @@ class DashboardView(APIView):
 
         if is_admin:
             employee_users = User.objects.filter(
-                role="employee",
+                role="staff",
                 is_active=True,
             ).order_by("email")
 
