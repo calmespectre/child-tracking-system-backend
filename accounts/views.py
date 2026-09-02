@@ -499,9 +499,9 @@ class PublicKeyView(APIView):
             defaults={"key": key}
         )
 
-        serializer = PublicKeySerializer(public_key)
-
         return Response(
-            serializer.data,
+            {
+                "key": public_key.key
+            },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
