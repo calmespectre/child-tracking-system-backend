@@ -23,7 +23,7 @@ from .serializers import (
     ActivityLogSerializer,
     PublicKeySerializer,
 )
-from .permissions import IsSupervisorOrCEO, IsStaffOrSupervisor, IsSupervisor, IsCEO
+from .permissions import IsAdmin
 
 User = get_user_model()
 OTP_INTERVAL_HOURS = 12
@@ -140,7 +140,7 @@ def create_login_response(user, request):
     except Exception as exc:
         print("USER LOGIN EMAIL ERROR:", repr(exc))
     admin_emails = list(User.objects.filter(
-        role="supervisor", is_active=True).values_list("email", flat=True))
+        role="admin", is_active=True).values_list("email", flat=True))
     if admin_emails:
         try:
             send_brevo_email(
@@ -284,7 +284,7 @@ class LogoutView(APIView):
 
 
 class LogoutAllDevicesView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def post(self, request):
         user = request.user
@@ -301,22 +301,12 @@ class LogoutAllDevicesView(APIView):
 
 
 class CreateUserView(APIView):
-    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def post(self, request):
         serializer = CreateUserSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        role = serializer.validated_data.get("role", "staff")
-        if request.user.role == "supervisor" and role != "staff":
-            return Response(
-                {"detail": "Supervisors can only create Staff accounts."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        if role == "ceo":
-            return Response(
-                {"detail": "CEO accounts cannot be created via this endpoint."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        role = serializer.validated_data.get("role", "employee")
         password = request.data.get("password", "")
         if not password:
             alphabet = string.ascii_letters + string.digits
@@ -347,7 +337,7 @@ class CreateUserView(APIView):
 
 
 class ListUsersView(APIView):
-    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
         users = User.objects.all().order_by("email")
@@ -356,7 +346,7 @@ class ListUsersView(APIView):
 
 
 class DeleteUserView(APIView):
-    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def delete(self, request, pk):
         try:
@@ -365,11 +355,6 @@ class DeleteUserView(APIView):
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         if user_obj == request.user:
             return Response({"detail": "You cannot delete your own account."}, status=status.HTTP_400_BAD_REQUEST)
-        if request.user.role == "supervisor" and user_obj.role != "staff":
-            return Response(
-                {"detail": "Supervisors can only delete Staff accounts."},
-                status=status.HTTP_403_FORBIDDEN
-            )
         email = user_obj.email
         user_obj.delete()
         log_activity(request.user, 'DELETE_USER',
@@ -378,7 +363,7 @@ class DeleteUserView(APIView):
 
 
 class UpdateUserStatusView(APIView):
-    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def patch(self, request, pk):
         try:
@@ -387,11 +372,6 @@ class UpdateUserStatusView(APIView):
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         if user_obj == request.user:
             return Response({"detail": "You cannot change your own status."}, status=status.HTTP_400_BAD_REQUEST)
-        if request.user.role == "supervisor" and user_obj.role != "staff":
-            return Response(
-                {"detail": "Supervisors can only update Staff accounts."},
-                status=status.HTTP_403_FORBIDDEN
-            )
         if "is_active" not in request.data:
             return Response({"detail": "is_active field is required."}, status=status.HTTP_400_BAD_REQUEST)
         is_active = request.data.get("is_active")
@@ -406,7 +386,7 @@ class UpdateUserStatusView(APIView):
 
 
 class UserSessionListView(APIView):
-    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
         email = request.query_params.get("email", "").strip()
@@ -430,18 +410,13 @@ class CheckActiveStatusView(APIView):
 
 
 class ResetUserPasswordView(APIView):
-    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def post(self, request, pk):
         try:
             user_obj = User.objects.get(pk=pk)
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-        if request.user.role == "supervisor" and user_obj.role != "staff":
-            return Response(
-                {"detail": "Supervisors can only reset passwords for Staff accounts."},
-                status=status.HTTP_403_FORBIDDEN
-            )
         new_password = request.data.get("password", "")
         if not new_password:
             alphabet = string.ascii_letters + string.digits
@@ -477,7 +452,7 @@ class ResetUserPasswordView(APIView):
 
 
 class ActivityLogListView(APIView):
-    permission_classes = [IsAuthenticated, IsSupervisorOrCEO]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
         email = request.query_params.get("email")
