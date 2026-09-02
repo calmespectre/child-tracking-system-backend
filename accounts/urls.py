@@ -13,9 +13,6 @@ from .views import (
     ActivityLogListView,
     UpdateProfileView,
     PublicKeyView,
-    ChatUserListView,
-    ChatMessageListView,
-    ChatMarkReadView,
 )
 
 urlpatterns = [
@@ -36,8 +33,4 @@ urlpatterns = [
     path("public-key/", PublicKeyView.as_view(), name="public-key-list"),
     path("public-key/<str:email>/",
          PublicKeyView.as_view(), name="public-key-detail"),
-    path("chat/users/", ChatUserListView.as_view(), name="chat-users"),
-    path("chat/messages/", ChatMessageListView.as_view(), name="chat-messages"),
-    path("chat/messages/mark-read/",
-         ChatMarkReadView.as_view(), name="chat-mark-read"),
 ]

@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "accounts",
     "beneficiaries",
     "disbursements",
+    "chat",
 ]
 
 MIDDLEWARE = [
