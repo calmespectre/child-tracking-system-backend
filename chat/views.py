@@ -14,8 +14,10 @@ class ChatUserListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        users = User.objects.exclude(id=request.user.id).only(
-            'id', 'email', 'username', 'profile_picture', 'public_key')
+        users = User.objects.exclude(id=request.user.id).select_related(
+            'public_key'
+        )
+
         from accounts.serializers import UserProfileSerializer
         serializer = UserProfileSerializer(users, many=True)
         return Response(serializer.data)

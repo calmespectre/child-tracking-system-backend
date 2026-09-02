@@ -32,7 +32,7 @@ urlpatterns = [
     path("activity-logs/", ActivityLogListView.as_view(), name="activity-logs"),
     path("logout-all/", LogoutAllDevicesView.as_view(), name="logout-all"),
     path("profile/", UpdateProfileView.as_view(), name="update-profile"),
-    path("public-key/", PublicKeyView.as_view(), name="public-key-list"),
+    path("public-key/", PublicKeyView.as_view(), name="public-key"),
     path("public-key/<str:email>/",
          PublicKeyView.as_view(), name="public-key-detail"),
 ]

@@ -485,33 +485,23 @@ class UpdateProfileView(APIView):
 class PublicKeyView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, email=None):
-        if email:
-            try:
-                user = User.objects.get(email__iexact=email)
-            except User.DoesNotExist:
-                return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-            try:
-                pubkey = PublicKey.objects.get(user=user)
-                serializer = PublicKeySerializer(pubkey)
-                return Response(serializer.data)
-            except PublicKey.DoesNotExist:
-                return Response({"detail": "Public key not found."}, status=status.HTTP_404_NOT_FOUND)
-        else:
-            keys = PublicKey.objects.all()
-            serializer = PublicKeySerializer(keys, many=True)
-            return Response(serializer.data)
-
     def post(self, request):
-        key = request.data.get('key')
+        key = request.data.get("key")
+
         if not key:
-            return Response({"detail": "Key is required."}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            pubkey, created = PublicKey.objects.update_or_create(
-                user=request.user,
-                defaults={'key': key}
+            return Response(
+                {"detail": "key is required."},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            serializer = PublicKeySerializer(pubkey)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except IntegrityError:
-            return Response({"detail": "Error saving key."}, status=status.HTTP_400_BAD_REQUEST)
+
+        public_key, created = PublicKey.objects.update_or_create(
+            user=request.user,
+            defaults={"key": key}
+        )
+
+        serializer = PublicKeySerializer(public_key)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )

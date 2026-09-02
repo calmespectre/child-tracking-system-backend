@@ -50,11 +50,27 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    public_key = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "email", "username", "role", "profile_picture",
-                  "dark_mode", "notifications_enabled"]
-        read_only_fields = ["id", "email", "role"]
+        fields = [
+            "id",
+            "email",
+            "username",
+            "role",
+            "profile_picture",
+            "dark_mode",
+            "notifications_enabled",
+            "public_key",
+        ]
+        read_only_fields = ["id", "email", "role", "public_key"]
+
+    def get_public_key(self, obj):
+        try:
+            return obj.public_key.key
+        except PublicKey.DoesNotExist:
+            return None
 
 
 class UserSessionSerializer(serializers.ModelSerializer):
