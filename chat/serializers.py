@@ -14,7 +14,6 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         source="sender.username",
         read_only=True
     )
-    sender_public_key = serializers.SerializerMethodField()
     recipient_email = serializers.EmailField(
         source="recipient.email",
         read_only=True
@@ -31,7 +30,6 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "sender",
             "sender_email",
             "sender_name",
-            "sender_public_key",
             "recipient",
             "recipient_email",
             "message",
@@ -41,22 +39,14 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "is_read",
             "reply_to",
             "reply_to_id",
-            "encrypted_symmetric_key"
         ]
         read_only_fields = [
             "id",
             "sender",
             "timestamp",
             "is_read",
-            "sender_public_key",
             "reply_to_id"
         ]
-
-    def get_sender_public_key(self, obj):
-        try:
-            return obj.sender.public_key.key
-        except Exception:
-            return None
 
 
 class UserConversationSerializer(serializers.ModelSerializer):

@@ -18,8 +18,6 @@ class ChatMessage(models.Model):
     is_read = models.BooleanField(default=False)
     reply_to = models.ForeignKey(
         'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='replies')
-    encrypted_symmetric_key = models.TextField(
-        blank=True, default="")  # for attachment decryption
 
     class Meta:
         ordering = ['timestamp']

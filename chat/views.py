@@ -14,10 +14,7 @@ class ChatUserListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        users = User.objects.exclude(id=request.user.id).select_related(
-            'public_key'
-        )
-
+        users = User.objects.exclude(id=request.user.id)
         from accounts.serializers import UserProfileSerializer
         serializer = UserProfileSerializer(users, many=True)
         return Response(serializer.data)
@@ -54,7 +51,6 @@ class ChatMessageListView(APIView):
         message_text = request.data.get('message', '').strip()
         attachment = request.FILES.get('attachment')
         reply_to_id = request.data.get('reply_to')
-        encrypted_key = request.data.get('encrypted_symmetric_key', '')
 
         if not recipient_email:
             return Response({'detail': 'recipient is required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -71,7 +67,6 @@ class ChatMessageListView(APIView):
             sender=request.user,
             recipient=recipient,
             message=message_text,
-            encrypted_symmetric_key=encrypted_key
         )
         if reply_to_id:
             try:
