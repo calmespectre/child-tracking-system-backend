@@ -1,15 +1,14 @@
 from rest_framework import serializers
-from .models import Disbursement
+from .models import Bursary
 
 
-class DisbursementSerializer(serializers.ModelSerializer):
+class BursarySerializer(serializers.ModelSerializer):
     class Meta:
-        model = Disbursement
+        model = Bursary
         fields = [
-            "id", "program", "zone", "case_number", "admission_number",
+            "id", "zone", "case_number", "admission_number",
             "beneficiary_name", "school", "grade", "performance",
-            "account_number", "branch", "location", "description",
-            "quantity", "amount", "date", "status", "notes",
-            "created_by", "created_at", "updated_at",
+            "account_number", "branch", "amount", "date",
+            "status", "notes", "created_by", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]

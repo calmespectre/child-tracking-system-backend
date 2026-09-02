@@ -1,23 +1,6 @@
-from django.urls import path
-from .views import DisbursementViewSet
+from rest_framework.routers import DefaultRouter
+from .views import BursaryViewSet
 
-disbursement_list = DisbursementViewSet.as_view({
-    'get': 'list',
-    'post': 'create'
-})
-disbursement_detail = DisbursementViewSet.as_view({
-    'get': 'retrieve',
-    'put': 'update',
-    'patch': 'partial_update',
-    'delete': 'destroy'
-})
-disbursement_import = DisbursementViewSet.as_view({
-    'post': 'import_bursaries'
-})
-
-urlpatterns = [
-    path('<str:program>/', disbursement_list, name='disbursement-list'),
-    path('<str:program>/<int:pk>/', disbursement_detail,
-         name='disbursement-detail'),
-    path('<str:program>/import/', disbursement_import, name='disbursement-import'),
-]
+router = DefaultRouter()
+router.register(r"bursaries", BursaryViewSet, basename="bursary")
+urlpatterns = router.urls
