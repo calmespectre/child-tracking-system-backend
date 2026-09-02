@@ -64,12 +64,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "notifications_enabled",
             "public_key",
         ]
-        read_only_fields = ["id", "email", "role", "public_key"]
+        read_only_fields = [
+            "id",
+            "email",
+            "role",
+            "public_key",
+        ]
 
     def get_public_key(self, obj):
         try:
             return obj.public_key.key
-        except PublicKey.DoesNotExist:
+        except Exception:
             return None
 
 
