@@ -37,6 +37,8 @@ class User(AbstractUser):
     last_password_auth = models.DateTimeField(null=True, blank=True)
     last_activity = models.DateTimeField(null=True, blank=True)
     last_ip = models.GenericIPAddressField(null=True, blank=True)
+    dark_mode = models.BooleanField(default=False)
+    notifications_enabled = models.BooleanField(default=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["username"]

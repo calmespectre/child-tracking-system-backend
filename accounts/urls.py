@@ -13,6 +13,7 @@ from .views import (
     ActivityLogListView,
     UpdateProfileView,
     PublicKeyView,
+    LogoutAllDevicesView,
 )
 
 urlpatterns = [
@@ -29,6 +30,7 @@ urlpatterns = [
     path("users/<int:pk>/reset-password/",
          ResetUserPasswordView.as_view(), name="reset-user-password"),
     path("activity-logs/", ActivityLogListView.as_view(), name="activity-logs"),
+    path("logout-all/", LogoutAllDevicesView.as_view(), name="logout-all"),
     path("profile/", UpdateProfileView.as_view(), name="update-profile"),
     path("public-key/", PublicKeyView.as_view(), name="public-key-list"),
     path("public-key/<str:email>/",

@@ -171,6 +171,8 @@ def create_login_response(user, request):
         "email": user.email,
         "role": user.role,
         "profile_picture": profile_picture_url,
+        "dark_mode": user.dark_mode,
+        "notifications_enabled": user.notifications_enabled,
     }}
 
 
@@ -279,6 +281,23 @@ class LogoutView(APIView):
         except Exception:
             pass
         return Response({"detail": "Logged out successfully."}, status=status.HTTP_200_OK)
+
+
+class LogoutAllDevicesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        outstanding = OutstandingToken.objects.filter(user=user)
+        for token in outstanding:
+            try:
+                BlacklistedToken.objects.get_or_create(token=token)
+            except Exception:
+                pass
+        user.last_activity = None
+        user.save(update_fields=["last_activity"])
+        log_activity(user, 'LOGOUT_ALL', request)
+        return Response({"detail": "Logged out from all devices."}, status=status.HTTP_200_OK)
 
 
 class CreateUserView(APIView):
