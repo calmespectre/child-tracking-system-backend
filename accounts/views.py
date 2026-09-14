@@ -115,12 +115,13 @@ def create_login_response(user, request):
     log_activity(user, 'LOGIN', request)
     login_time = now.strftime("%d-%m-%Y %H:%M:%S")
     device_info = ua or "Unknown device"
+    display_name = user.get_full_name() or user.username or user.email
     try:
         send_brevo_email(
             to_emails=user.email,
             subject="MKCDP Login Notification",
             text_content=(
-                f"Dear {user.get_full_name() or user.username},\n\n"
+                f"Dear {display_name},\n\n"
                 "A login to your MKCDP Child-Tracking-System account was detected.\n\n"
                 f"Email: {user.email}\nTime: {login_time}\nDevice: {device_info}\nIP Address: {ip}\n\n"
                 "If this was not you, please contact the administrator immediately."
@@ -128,7 +129,7 @@ def create_login_response(user, request):
             html_content=f"""
                 <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
                     <h2>MKCDP Login Notification</h2>
-                    <p>Dear {user.get_full_name() or user.username},</p>
+                    <p>Dear {display_name},</p>
                     <p>A login to your MKCDP Child-Tracking-System account was detected.</p>
                     <p><strong>Email:</strong> {user.email}</p>
                     <p><strong>Time:</strong> {login_time}</p>
@@ -148,14 +149,15 @@ def create_login_response(user, request):
                 subject="MKCDP - New User Login",
                 text_content=(
                     "A user has logged into the MKCDP Child-Tracking-System.\n\n"
-                    f"User: {user.email}\nRole: {user.role}\nTime: {login_time}\nDevice: {device_info}\nIP Address: {ip}\n\n"
+                    f"User: {display_name}\nEmail: {user.email}\nRole: {user.role}\nTime: {login_time}\nDevice: {device_info}\nIP Address: {ip}\n\n"
                     "This is an automated notification."
                 ),
                 html_content=f"""
                     <div style="font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:30px;border:1px solid #e5e5e5;border-radius:12px;">
                         <h2>MKCDP - New User Login</h2>
                         <p>A user has logged into the MKCDP Child-Tracking-System.</p>
-                        <p><strong>User:</strong> {user.email}</p>
+                        <p><strong>User:</strong> {display_name}</p>
+                        <p><strong>Email:</strong> {user.email}</p>
                         <p><strong>Role:</strong> {user.role}</p>
                         <p><strong>Time:</strong> {login_time}</p>
                         <p><strong>IP Address:</strong> {ip}</p>
@@ -167,7 +169,7 @@ def create_login_response(user, request):
             print("ADMIN LOGIN EMAIL ERROR:", repr(exc))
     profile_picture_url = user.profile_picture.url if user.profile_picture else None
     return {**tokens, "user": {
-        "name": user.get_full_name() or user.username,
+        "name": display_name,
         "email": user.email,
         "role": user.role,
         "profile_picture": profile_picture_url,
@@ -307,16 +309,27 @@ class CreateUserView(APIView):
         serializer = CreateUserSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         role = serializer.validated_data.get("role", "employee")
+        name = (request.data.get("name") or "").strip()
         password = request.data.get("password", "")
+        email = serializer.validated_data["email"]
+        username = serializer.validated_data.get("username", "") or email
+        first_name = ""
+        last_name = ""
+        if name:
+            parts = name.split(" ", 1)
+            first_name = parts[0]
+            last_name = parts[1] if len(parts) > 1 else ""
         if not password:
             alphabet = string.ascii_letters + string.digits
             generated_password = "".join(
                 secrets.choice(alphabet) for _ in range(12))
             user = User.objects.create_user(
-                email=serializer.validated_data["email"],
+                email=email,
                 role=role,
-                username=serializer.validated_data.get("username", ""),
-                password=generated_password
+                username=username,
+                password=generated_password,
+                first_name=first_name,
+                last_name=last_name,
             )
             UserPasswordHistory.objects.create(
                 user=user, password_hash=make_password(generated_password))
@@ -325,15 +338,25 @@ class CreateUserView(APIView):
             return Response({
                 "id": user.id,
                 "email": user.email,
+                "name": user.get_full_name() or user.username,
                 "role": user.role,
                 "generated_password": generated_password
             }, status=status.HTTP_201_CREATED)
         user = serializer.save()
+        if name:
+            user.first_name = first_name
+            user.last_name = last_name
+            user.save(update_fields=["first_name", "last_name"])
         UserPasswordHistory.objects.create(
             user=user, password_hash=make_password(password))
         log_activity(request.user, 'CREATE_USER', request, {
                      "created_user": user.email, "generated": False})
-        return Response({"id": user.id, "email": user.email, "role": user.role}, status=status.HTTP_201_CREATED)
+        return Response({
+            "id": user.id,
+            "email": user.email,
+            "name": user.get_full_name() or user.username,
+            "role": user.role
+        }, status=status.HTTP_201_CREATED)
 
 
 class ListUsersView(APIView):
