@@ -473,42 +473,36 @@ class ListUsersView(APIView):
         return Response(serializer.data)
 
 
-class UpdateUserView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+class UpdateUserView(generics.UpdateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-    def patch(self, request, pk):
-        try:
-            employee = User.objects.get(pk=pk)
-        except User.DoesNotExist:
-            return Response(
-                {"detail": "Employee not found."},
-                status=status.HTTP_404_NOT_FOUND
+    def get_queryset(self):
+        if self.request.user.role != "admin":
+            return User.objects.none()
+
+        return User.objects.all()
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", True)
+        instance = self.get_object()
+
+        if instance.pk == request.user.pk:
+            raise ValidationError(
+                {"detail": "You cannot update your own account through employee management."}
             )
 
-        serializer = CreateUserSerializer(
-            employee,
+        serializer = self.get_serializer(
+            instance,
             data=request.data,
-            partial=True
+            partial=partial
         )
 
         serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
 
-        try:
-            employee = serializer.save()
-        except IntegrityError:
-            return Response(
-                {"detail": "The employee number or email is already in use."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        log_activity(
-            request.user,
-            "UPDATE_USER",
-            request,
-            {"updated_user": employee.email}
-        )
-
-        return Response(UserSerializer(employee).data)
+        return Response(serializer.data)
 
 
 class DeleteUserView(APIView):
