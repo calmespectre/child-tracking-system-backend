@@ -5,6 +5,7 @@ from .views import (
     LogoutView,
     CreateUserView,
     ListUsersView,
+    UpdateUserView,
     DeleteUserView,
     UpdateUserStatusView,
     UserSessionListView,
@@ -14,7 +15,6 @@ from .views import (
     UpdateProfileView,
     PublicKeyView,
     LogoutAllDevicesView,
-    UpdateUserView,
 )
 
 urlpatterns = [

@@ -210,6 +210,33 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+class UpdateUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "username",
+            "email",
+            "role",
+            "is_active",
+        ]
+        read_only_fields = ["id"]
+
+    def validate_email(self, value):
+        queryset = User.objects.filter(email__iexact=value)
+
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "A user with this email already exists."
+            )
+
+        return value
+
 
 class PublicKeySerializer(serializers.ModelSerializer):
     class Meta:

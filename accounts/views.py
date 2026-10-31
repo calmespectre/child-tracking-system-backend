@@ -7,11 +7,13 @@ from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import IntegrityError
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
+
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import (
@@ -32,10 +34,11 @@ from .serializers import (
     VerifyOTPSerializer,
     CreateUserSerializer,
     UserSerializer,
+    UpdateUserSerializer,
     UserProfileSerializer,
     UserSessionSerializer,
     ActivityLogSerializer,
-    PublicKeySerializer
+    PublicKeySerializer,
 )
 
 from .permissions import IsAdmin
@@ -473,36 +476,36 @@ class ListUsersView(APIView):
         return Response(serializer.data)
 
 
-class UpdateUserView(generics.UpdateAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+class UpdateUserView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
 
-    def get_queryset(self):
-        if self.request.user.role != "admin":
-            return User.objects.none()
+    def patch(self, request, pk):
+        user_obj = get_object_or_404(User, pk=pk)
 
-        return User.objects.all()
+        if user_obj == request.user:
+            protected_fields = {"role", "is_active"}
 
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop("partial", True)
-        instance = self.get_object()
+            if protected_fields.intersection(request.data.keys()):
+                return Response(
+                    {
+                        "detail": "You cannot change your own role or account status here."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        if instance.pk == request.user.pk:
-            raise ValidationError(
-                {"detail": "You cannot update your own account through employee management."}
-            )
-
-        serializer = self.get_serializer(
-            instance,
+        serializer = UpdateUserSerializer(
+            user_obj,
             data=request.data,
-            partial=partial
+            partial=True,
         )
 
         serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
+        serializer.save()
 
-        return Response(serializer.data)
+        return Response(
+            UserSerializer(user_obj).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class DeleteUserView(APIView):
