@@ -1,7 +1,7 @@
 import os
+import logging
 
 from datetime import timedelta
-
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,13 +17,15 @@ SECRET_KEY = os.environ.get(
     "django-insecure-change-this-in-production"
 )
 
-DEBUG = False
+DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
 ALLOWED_HOSTS = [
-    "child-tracking-system-backend.onrender.com",
-    "localhost",
-    "127.0.0.1",
-    "192.168.100.138",
+    host.strip()
+    for host in os.environ.get(
+        "ALLOWED_HOSTS",
+        "child-tracking-system-backend.onrender.com,localhost,127.0.0.1,192.168.100.138"
+    ).split(",")
+    if host.strip()
 ]
 
 INSTALLED_APPS = [
@@ -76,15 +78,33 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.path.join(
-            BASE_DIR,
-            "db.sqlite3",
-        ),
+DATABASE_ENGINE = os.environ.get("DB_ENGINE", "sqlite").lower()
+
+if DATABASE_ENGINE == "postgresql":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DB_NAME"),
+            "USER": os.environ.get("DB_USER"),
+            "PASSWORD": os.environ.get("DB_PASSWORD"),
+            "HOST": os.environ.get("DB_HOST"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+            "CONN_MAX_AGE": 60,
+            "OPTIONS": {
+                "connect_timeout": 10,
+            },
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.path.join(
+                BASE_DIR,
+                "db.sqlite3",
+            ),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -110,6 +130,8 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "/static/"
+
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 MEDIA_URL = "/media/"
 
@@ -174,13 +196,20 @@ SIMPLE_JWT = {
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "https://child-tracking-system-pi.vercel.app",
-    "http://192.168.100.138:5173",
-    "http://192.168.100.138:5174",
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ALLOWED_ORIGINS",
+        ",".join([
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174",
+            "https://child-tracking-system-pi.vercel.app",
+            "http://192.168.100.138:5173",
+            "http://192.168.100.138:5174",
+        ])
+    ).split(",")
+    if origin.strip()
 ]
 
 CORS_ALLOW_METHODS = [
@@ -205,11 +234,18 @@ CORS_ALLOW_HEADERS = [
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://child-tracking-system-pi.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
+    origin.strip()
+    for origin in os.environ.get(
+        "CSRF_TRUSTED_ORIGINS",
+        ",".join([
+            "https://child-tracking-system-pi.vercel.app",
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174",
+        ])
+    ).split(",")
+    if origin.strip()
 ]
 
 SECURE_PROXY_SSL_HEADER = (
@@ -217,15 +253,65 @@ SECURE_PROXY_SSL_HEADER = (
     "https",
 )
 
-BREVO_API_KEY = os.environ.get(
-    "BREVO_API_KEY"
+SECURE_SSL_REDIRECT = (
+    not DEBUG
+    and os.environ.get("SECURE_SSL_REDIRECT", "False").lower() == "true"
 )
 
-BREVO_SENDER_EMAIL = os.environ.get(
-    "BREVO_SENDER_EMAIL"
-)
+SESSION_COOKIE_SECURE = not DEBUG
+
+CSRF_COOKIE_SECURE = not DEBUG
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+X_FRAME_OPTIONS = "DENY"
+
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
+
+BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL")
 
 BREVO_SENDER_NAME = os.environ.get(
     "BREVO_SENDER_NAME",
     "MKCDP Child Tracking System",
 )
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": (
+                "{levelname} {asctime} "
+                "{name} {message}"
+            ),
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "accounts": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
