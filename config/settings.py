@@ -17,7 +17,10 @@ SECRET_KEY = os.environ.get(
     "django-insecure-change-this-in-production"
 )
 
-DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+DEBUG = os.environ.get(
+    "DEBUG",
+    "False"
+).lower() == "true"
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -35,13 +38,17 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+
     "django_filters",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+
     "corsheaders",
+
     "cloudinary",
     "cloudinary_storage",
+
     "accounts",
     "beneficiaries",
     "disbursements",
@@ -78,7 +85,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-DATABASE_ENGINE = os.environ.get("DB_ENGINE", "sqlite").lower()
+DATABASE_ENGINE = os.environ.get(
+    "DB_ENGINE",
+    "sqlite"
+).lower()
 
 if DATABASE_ENGINE == "postgresql":
     DATABASES = {
@@ -131,23 +141,46 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 
-STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+STATIC_ROOT = os.path.join(
+    BASE_DIR,
+    "staticfiles"
+)
 
 MEDIA_URL = "/media/"
 
-MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+MEDIA_ROOT = os.path.join(
+    BASE_DIR,
+    "media"
+)
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
 
+
+CLOUDINARY_CLOUD_NAME = os.environ.get(
+    "CLOUDINARY_CLOUD_NAME",
+    ""
+).strip()
+
+CLOUDINARY_API_KEY = os.environ.get(
+    "CLOUDINARY_API_KEY",
+    ""
+).strip()
+
+CLOUDINARY_API_SECRET = os.environ.get(
+    "CLOUDINARY_API_SECRET",
+    ""
+).strip()
+
 CLOUDINARY_STORAGE = {
-    "CLOUD_NAME": os.environ.get("CLOUDINARY_CLOUD_NAME"),
-    "API_KEY": os.environ.get("CLOUDINARY_API_KEY"),
-    "API_SECRET": os.environ.get("CLOUDINARY_API_SECRET"),
+    "CLOUD_NAME": CLOUDINARY_CLOUD_NAME,
+    "API_KEY": CLOUDINARY_API_KEY,
+    "API_SECRET": CLOUDINARY_API_SECRET,
 }
 
 STORAGES = {
@@ -159,42 +192,64 @@ STORAGES = {
     },
 }
 
+
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "accounts.authentication.ActiveUserJWTAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
+
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
+
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+
     "PAGE_SIZE": 50,
 }
 
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),
+
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+
     "ROTATE_REFRESH_TOKENS": True,
+
     "BLACKLIST_AFTER_ROTATION": True,
+
     "UPDATE_LAST_LOGIN": True,
+
     "ALGORITHM": "HS256",
+
     "SIGNING_KEY": SECRET_KEY,
+
     "AUTH_HEADER_TYPES": ("Bearer",),
+
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+
     "USER_ID_FIELD": "id",
+
     "USER_ID_CLAIM": "user_id",
+
     "TOKEN_TYPE_CLAIM": "token_type",
+
     "JTI_CLAIM": "jti",
+
     "SLIDING_TOKEN_REFRESH_EXP_CLAIM": "refresh_exp",
+
     "SLIDING_TOKEN_LIFETIME": timedelta(hours=12),
+
     "SLIDING_TOKEN_REFRESH_LIFETIME": timedelta(days=1),
 }
+
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -251,6 +306,7 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+
 SECURE_PROXY_SSL_HEADER = (
     "HTTP_X_FORWARDED_PROTO",
     "https",
@@ -258,7 +314,10 @@ SECURE_PROXY_SSL_HEADER = (
 
 SECURE_SSL_REDIRECT = (
     not DEBUG
-    and os.environ.get("SECURE_SSL_REDIRECT", "False").lower() == "true"
+    and os.environ.get(
+        "SECURE_SSL_REDIRECT",
+        "False"
+    ).lower() == "true"
 )
 
 SESSION_COOKIE_SECURE = not DEBUG
@@ -269,18 +328,28 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 
 X_FRAME_OPTIONS = "DENY"
 
-BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
-BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL")
+
+BREVO_API_KEY = os.environ.get(
+    "BREVO_API_KEY"
+)
+
+BREVO_SENDER_EMAIL = os.environ.get(
+    "BREVO_SENDER_EMAIL"
+)
 
 BREVO_SENDER_NAME = os.environ.get(
     "BREVO_SENDER_NAME",
-    "MKCDP Child Tracking System",
+    "MKCDP Child Tracking System"
 )
+
 
 LOGGING = {
     "version": 1,
+
     "disable_existing_loggers": False,
+
     "formatters": {
         "verbose": {
             "format": (
@@ -290,27 +359,32 @@ LOGGING = {
             "style": "{",
         },
     },
+
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
         },
     },
+
     "root": {
         "handlers": ["console"],
         "level": "INFO",
     },
+
     "loggers": {
         "django": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
         },
+
         "django.request": {
             "handlers": ["console"],
             "level": "ERROR",
             "propagate": False,
         },
+
         "accounts": {
             "handlers": ["console"],
             "level": "INFO",
