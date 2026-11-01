@@ -142,7 +142,13 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    profile_picture = serializers.ImageField(
+        required=False,
+        allow_null=True
+    )
     public_key = serializers.SerializerMethodField()
+
+    MAX_PROFILE_PICTURE_SIZE = 15 * 1024 * 1024
 
     class Meta:
         model = User
@@ -162,6 +168,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "role",
             "public_key",
         ]
+
+    def validate_profile_picture(self, value):
+        if value is None:
+            return value
+
+        if value.size > self.MAX_PROFILE_PICTURE_SIZE:
+            raise serializers.ValidationError(
+                "Profile picture cannot exceed 15 MB."
+            )
+
+        return value
 
     def get_public_key(self, obj):
         try:

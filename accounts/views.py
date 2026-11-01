@@ -813,17 +813,43 @@ class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request):
+        old_picture = request.user.profile_picture
+
         serializer = UserProfileSerializer(
             request.user,
             data=request.data,
-            partial=True
+            partial=True,
+            context={"request": request}
         )
 
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        user = serializer.save()
 
-        return Response(serializer.data)
+        new_picture = user.profile_picture
 
+        if (
+            old_picture
+            and old_picture.name
+            and (
+                not new_picture
+                or old_picture.name != new_picture.name
+            )
+        ):
+            try:
+                old_picture.delete(save=False)
+            except Exception:
+                logger.exception(
+                    "Failed to delete previous profile picture for %s",
+                    user.email
+                )
+
+        return Response(
+            UserProfileSerializer(
+                user,
+                context={"request": request}
+            ).data,
+            status=status.HTTP_200_OK
+        )
 
 class PublicKeyView(APIView):
     permission_classes = [IsAuthenticated]
