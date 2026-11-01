@@ -1,6 +1,7 @@
 import os
 import secrets
 import string
+import logging
 import requests
 
 from django.contrib.auth import get_user_model, authenticate
@@ -13,7 +14,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
-
+from rest_framework.exceptions import APIException
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import (
@@ -45,6 +46,8 @@ from .permissions import IsAdmin
 
 
 User = get_user_model()
+
+logger = logging.getLogger(__name__)
 
 OTP_INTERVAL_HOURS = 12
 PASSWORD_HISTORY_COUNT = 5
@@ -114,11 +117,22 @@ def send_brevo_email(to_emails, subject, text_content, html_content=None):
             "content-type": "application/json"
         },
         json=payload,
-        timeout=10
+        timeout=15
     )
 
+    if not response.ok:
+        logger.error(
+            "BREVO ERROR: HTTP %s. Response: %s",
+            response.status_code,
+            response.text[:1000]
+        )
+
     response.raise_for_status()
-    return response.json()
+
+    try:
+        return response.json()
+    except ValueError:
+        return {}
 
 
 def get_tokens_for_user(user):
@@ -184,8 +198,8 @@ def create_login_response(user, request):
                 "If this was not you, contact the administrator."
             )
         )
-    except Exception as exc:
-        print("USER LOGIN EMAIL ERROR:", repr(exc))
+    except Exception:
+        logger.exception("USER LOGIN EMAIL ERROR")
 
     admin_emails = list(
         User.objects.filter(
@@ -208,8 +222,8 @@ def create_login_response(user, request):
                     f"IP Address: {ip}"
                 )
             )
-        except Exception as exc:
-            print("ADMIN LOGIN EMAIL ERROR:", repr(exc))
+        except Exception:
+            logger.exception("ADMIN LOGIN EMAIL ERROR")
 
     profile_picture_url = (
         user.profile_picture.url
@@ -234,85 +248,154 @@ class RequestOTPView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = RequestOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        email = serializer.validated_data["email"]
-        password = serializer.validated_data.get("password", "")
-
-        if not password:
-            return Response(
-                {"detail": "Password is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        user = authenticate(
-            request,
-            email=email,
-            password=password
-        )
-
-        if not user:
-            return Response(
-                {"detail": "Invalid email or password."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not user.is_active:
-            return Response(
-                {"detail": "Your account has been deactivated."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        if otp_recently_verified(user):
-            data = create_login_response(user, request)
-            data["requires_otp"] = False
-            data["detail"] = "Login successful."
-
-            return Response(data)
-
-        OTP.objects.filter(
-            user=user,
-            is_used=False
-        ).update(is_used=True)
-
-        otp, code = OTP.create_for_user(user)
+        email = request.data.get("email", "")
 
         try:
-            send_brevo_email(
-                to_emails=email,
-                subject="Your MKCDP Child Tracking System login code",
-                text_content=(
-                    f"Your one-time login code is {code}. "
-                    "It expires in 10 minutes."
-                ),
-                html_content=f"""
-                    <div style="font-family:Arial,sans-serif;
-                    max-width:500px;margin:40px auto;padding:30px;
-                    border:1px solid #e5e5e5;border-radius:12px;">
-                        <h2>MKCDP Child Tracking System</h2>
-                        <p>Your one-time login code is:</p>
-                        <div style="font-size:32px;font-weight:bold;
-                        letter-spacing:8px;text-align:center;
-                        padding:20px;background:#f5f5f5;
-                        border-radius:10px;">{code}</div>
-                        <p>This code expires in 10 minutes.</p>
-                    </div>
-                """
+            logger.info("OTP REQUEST: Received login request.")
+
+            serializer = RequestOTPSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            email = serializer.validated_data["email"]
+            password = serializer.validated_data.get("password", "")
+
+            logger.info("OTP REQUEST: Validated request for %s.", email)
+
+            if not password:
+                return Response(
+                    {"detail": "Password is required."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            logger.info("OTP REQUEST: Authenticating user.")
+
+            user = authenticate(
+                request,
+                email=email,
+                password=password
             )
-        except Exception as exc:
-            print("BREVO OTP ERROR:", repr(exc))
-            otp.delete()
+
+            if not user:
+                logger.warning(
+                    "OTP REQUEST: Invalid credentials for %s.",
+                    email
+                )
+
+                return Response(
+                    {"detail": "Invalid email or password."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if not user.is_active:
+                return Response(
+                    {"detail": "Your account has been deactivated."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            logger.info(
+                "OTP REQUEST: Authentication successful for %s.",
+                email
+            )
+
+            if otp_recently_verified(user):
+                logger.info(
+                    "OTP REQUEST: Recent verification found for %s.",
+                    email
+                )
+
+                data = create_login_response(user, request)
+                data["requires_otp"] = False
+                data["detail"] = "Login successful."
+
+                return Response(data)
+
+            logger.info("OTP REQUEST: Invalidating previous OTPs.")
+
+            OTP.objects.filter(
+                user=user,
+                is_used=False
+            ).update(is_used=True)
+
+            logger.info("OTP REQUEST: Creating OTP record.")
+
+            otp, code = OTP.create_for_user(user)
+
+            logger.info(
+                "OTP REQUEST: OTP record created for %s.",
+                email
+            )
+
+            try:
+                logger.info("OTP REQUEST: Sending Brevo email.")
+
+                send_brevo_email(
+                    to_emails=email,
+                    subject="Your MKCDP Child Tracking System login code",
+                    text_content=(
+                        f"Your one-time login code is {code}. "
+                        "It expires in 10 minutes."
+                    ),
+                    html_content=f"""
+                        <div style="font-family:Arial,sans-serif;
+                        max-width:500px;margin:40px auto;padding:30px;
+                        border:1px solid #e5e5e5;border-radius:12px;">
+                            <h2>MKCDP Child Tracking System</h2>
+                            <p>Your one-time login code is:</p>
+                            <div style="font-size:32px;font-weight:bold;
+                            letter-spacing:8px;text-align:center;
+                            padding:20px;background:#f5f5f5;
+                            border-radius:10px;">{code}</div>
+                            <p>This code expires in 10 minutes.</p>
+                        </div>
+                    """
+                )
+
+                logger.info(
+                    "OTP REQUEST: Brevo email sent successfully."
+                )
+
+            except Exception:
+                logger.exception(
+                    "OTP REQUEST: Brevo email delivery failed."
+                )
+
+                try:
+                    otp.delete()
+                except Exception:
+                    logger.exception(
+                        "OTP REQUEST: Failed to delete OTP after email failure."
+                    )
+
+                return Response(
+                    {
+                        "detail": "The verification email could not be sent."
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+
+            return Response({
+                "requires_otp": True,
+                "detail": "OTP sent to email."
+            })
+
+        except APIException:
+            raise
+
+        except Exception:
+            logger.exception(
+                "OTP REQUEST FAILED for email %s.",
+                email or "unknown"
+            )
 
             return Response(
-                {"detail": "The verification email could not be sent."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
+                {
+                    "detail": (
+                        "An unexpected server error occurred "
+                        "while requesting your verification code."
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-        return Response({
-            "requires_otp": True,
-            "detail": "OTP sent to email."
-        })
 
 
 class VerifyOTPView(APIView):
@@ -389,7 +472,7 @@ class LogoutView(APIView):
             if refresh_token:
                 RefreshToken(refresh_token).blacklist()
         except Exception:
-            pass
+            logger.exception("LOGOUT TOKEN BLACKLIST ERROR")
 
         return Response({"detail": "Logged out successfully."})
 
@@ -408,9 +491,12 @@ class LogoutAllDevicesView(APIView):
         request.user.last_activity = None
         request.user.save(update_fields=["last_activity"])
 
-        log_activity(request.user, "LOGOUT", request, {
-            "action": "logout_all_devices"
-        })
+        log_activity(
+            request.user,
+            "LOGOUT",
+            request,
+            {"action": "logout_all_devices"}
+        )
 
         return Response({
             "detail": "Logged out from all devices."
@@ -437,6 +523,8 @@ class CreateUserView(APIView):
         try:
             user = serializer.save(password=password)
         except IntegrityError:
+            logger.exception("CREATE USER DATABASE ERROR")
+
             return Response(
                 {"detail": "An employee with these details already exists."},
                 status=status.HTTP_400_BAD_REQUEST
