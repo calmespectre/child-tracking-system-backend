@@ -517,14 +517,12 @@ class CreateUserView(APIView):
             alphabet = string.ascii_letters + string.digits
             password = "".join(
                 secrets.choice(alphabet)
-                for _ in range(12)
+                for _ in range(16)
             )
 
         try:
             user = serializer.save(password=password)
         except IntegrityError:
-            logger.exception("CREATE USER DATABASE ERROR")
-
             return Response(
                 {"detail": "An employee with these details already exists."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -550,16 +548,24 @@ class CreateUserView(APIView):
         if generated:
             data["generated_password"] = password
 
-        return Response(data, status=status.HTTP_201_CREATED)
+        return Response(
+            data,
+            status=status.HTTP_201_CREATED
+        )
 
 
 class ListUsersView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        users = User.objects.all().order_by("email")
+        users = User.objects.all().order_by(
+            "-date_joined"
+        )
 
-        serializer = UserSerializer(users, many=True)
+        serializer = UserSerializer(
+            users,
+            many=True
+        )
 
         return Response(serializer.data)
 
@@ -578,23 +584,41 @@ class UpdateUserView(APIView):
                     {
                         "detail": "You cannot change your own role or account status here."
                     },
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
         serializer = UpdateUserSerializer(
             user_obj,
             data=request.data,
-            partial=True,
+            partial=True
         )
 
         serializer.is_valid(raise_exception=True)
-        serializer.save()
 
-        return Response(
-            UserSerializer(user_obj).data,
-            status=status.HTTP_200_OK,
+        try:
+            updated_user = serializer.save()
+        except IntegrityError:
+            return Response(
+                {
+                    "detail": "An employee with these details already exists."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        log_activity(
+            request.user,
+            "UPDATE_USER",
+            request,
+            {
+                "updated_user": updated_user.email,
+                "updated_fields": list(request.data.keys())
+            }
         )
 
+        return Response(
+            UserSerializer(updated_user).data,
+            status=status.HTTP_200_OK
+        )
 
 class DeleteUserView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]

@@ -1,11 +1,5 @@
 from rest_framework import serializers
-
-from .models import (
-    User,
-    UserSession,
-    ActivityLog,
-    PublicKey
-)
+from .models import User, UserSession, ActivityLog, PublicKey
 
 
 EMPLOYEE_FIELDS = [
@@ -54,9 +48,7 @@ class RequestOTPSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         if not User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError(
-                "No account found with this email."
-            )
+            raise serializers.ValidationError("No account found with this email.")
         return value
 
 
@@ -71,6 +63,7 @@ class CreateUserSerializer(serializers.ModelSerializer):
         required=False,
         allow_blank=True
     )
+
     username = serializers.CharField(
         required=False,
         allow_blank=True
@@ -83,6 +76,7 @@ class CreateUserSerializer(serializers.ModelSerializer):
             "id",
             "date_joined",
             "last_login",
+            "is_active",
         ]
 
     def validate_email(self, value):
@@ -96,22 +90,35 @@ class CreateUserSerializer(serializers.ModelSerializer):
         if not value:
             return None
 
-        queryset = User.objects.filter(employee_number=value)
-        if self.instance:
-            queryset = queryset.exclude(pk=self.instance.pk)
-
-        if queryset.exists():
+        if User.objects.filter(employee_number=value).exists():
             raise serializers.ValidationError(
                 "This employee number is already in use."
             )
 
         return value
 
+    def validate(self, attrs):
+        if not attrs.get("first_name"):
+            raise serializers.ValidationError({
+                "first_name": "First name is required."
+            })
+
+        if not attrs.get("last_name"):
+            raise serializers.ValidationError({
+                "last_name": "Last name is required."
+            })
+
+        if not attrs.get("employment_start_date"):
+            raise serializers.ValidationError({
+                "employment_start_date": "Employment start date is required."
+            })
+
+        attrs["username"] = attrs.get("username") or attrs["email"]
+
+        return attrs
+
     def create(self, validated_data):
         password = validated_data.pop("password", None)
-        validated_data["username"] = (
-            validated_data.get("username") or validated_data["email"]
-        )
 
         return User.objects.create_user(
             password=password,
@@ -146,6 +153,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+
     public_key = serializers.SerializerMethodField()
 
     MAX_PROFILE_PICTURE_SIZE = 15 * 1024 * 1024
@@ -162,6 +170,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "notifications_enabled",
             "public_key",
         ]
+
         read_only_fields = [
             "id",
             "email",
@@ -227,19 +236,21 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+
 class UpdateUserSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(
+        required=False,
+        allow_blank=True
+    )
+
     class Meta:
         model = User
-        fields = [
+        fields = EMPLOYEE_FIELDS
+        read_only_fields = [
             "id",
-            "first_name",
-            "last_name",
-            "username",
-            "email",
-            "role",
-            "is_active",
+            "date_joined",
+            "last_login",
         ]
-        read_only_fields = ["id"]
 
     def validate_email(self, value):
         queryset = User.objects.filter(email__iexact=value)
@@ -254,6 +265,36 @@ class UpdateUserSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate_employee_number(self, value):
+        if not value:
+            return None
+
+        queryset = User.objects.filter(employee_number=value)
+
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "This employee number is already in use."
+            )
+
+        return value
+
+    def validate(self, attrs):
+        if "email" in attrs:
+            attrs["username"] = attrs.get("username") or attrs["email"]
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+
+        instance.save()
+
+        return instance
+
 
 class PublicKeySerializer(serializers.ModelSerializer):
     class Meta:
@@ -265,6 +306,7 @@ class PublicKeySerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
         read_only_fields = [
             "id",
             "user",
